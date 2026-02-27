@@ -4,14 +4,15 @@ const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.physicallyCorrectLights = true;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
-renderer.setClearColor(0x070b13);
+renderer.toneMappingExposure = 1.24;
+renderer.setClearColor(0x040812);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x050911, 16, 95);
+scene.fog = new THREE.Fog(0x070d18, 14, 92);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 180);
 scene.add(camera);
@@ -30,15 +31,19 @@ const ui = {
   gadgetA: document.getElementById('gadgetA'),
   gadgetB: document.getElementById('gadgetB'),
   feed: document.getElementById('feed'),
-  scoreboard: document.getElementById('scoreboard')
+  scoreboard: document.getElementById('scoreboard'),
+  teamRole: document.getElementById('teamRole')
 };
 
-const ambient = new THREE.HemisphereLight(0x89a6d4, 0x101820, 0.75);
+const ambient = new THREE.HemisphereLight(0x94b4dc, 0x070c14, 0.95);
 scene.add(ambient);
-const keyLight = new THREE.DirectionalLight(0xa8c8ff, 1.35);
+const keyLight = new THREE.DirectionalLight(0xb8d4ff, 2.4);
 keyLight.position.set(8, 16, 4);
 keyLight.castShadow = true;
 scene.add(keyLight);
+const bounceLight = new THREE.PointLight(0x7ca6ff, 25, 55, 2);
+bounceLight.position.set(0, 5.2, 2);
+scene.add(bounceLight);
 
 const state = {
   phase: 'prep',
@@ -64,6 +69,8 @@ const pings = [];
 const impacts = [];
 const bullets = [];
 const trails = [];
+const teammateOutlines = [];
+const visionOccluders = [];
 
 const weaponRig = new THREE.Group();
 const weaponMuzzle = new THREE.Object3D();
@@ -197,6 +204,11 @@ function box(w, h, d, c, opts = {}) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
 }
 
+function addStaticCollider(mesh) {
+  colliders.push(new THREE.Box3().setFromObject(mesh));
+  visionOccluders.push(mesh);
+}
+
 function makeMap() {
   const floorTex = makeNoiseTexture('#303945', '#232b36');
   const wallTex = makeNoiseTexture('#5f6e80', '#3b4654');
@@ -224,7 +236,7 @@ function makeMap() {
     m.position.set(x, y, z);
     m.castShadow = true;
     world.add(m);
-    colliders.push(new THREE.Box3().setFromObject(m));
+    addStaticCollider(m);
   });
 
   const bombRoomFloor = box(7.4, 0.12, 7.4, 0x3f5672, { emissive: 0x153052, emissiveIntensity: 0.42, metalness: 0.28, roughness: 0.44 });
@@ -238,19 +250,19 @@ function makeMap() {
   const bombCrate = box(1.8, 1.4, 1.4, 0x6a4f34, { roughness: 0.72, metalness: 0.2 });
   bombCrate.position.set(0.2, 0.7, -11.2);
   world.add(bombCrate);
-  colliders.push(new THREE.Box3().setFromObject(bombCrate));
+  addStaticCollider(bombCrate);
 
   const bombRack = box(4.8, 2.2, 1.1, 0x222d3b, { map: trimTex, roughness: 0.52, metalness: 0.55 });
   bombRack.position.set(-4.2, 1.1, -11.5);
   world.add(bombRack);
-  colliders.push(new THREE.Box3().setFromObject(bombRack));
+  addStaticCollider(bombRack);
 
   const lockers = [[8.6, -11.1], [8.6, -9.7], [8.6, -8.3], [8.6, -6.9], [-12.2, 7.8], [-10.8, 7.8], [-9.4, 7.8]];
   lockers.forEach(([x, z], i) => {
     const locker = box(0.92, 2.2, 0.9, i < 4 ? 0x3d4956 : 0x4c3f34, { roughness: 0.68, metalness: 0.3 });
     locker.position.set(x, 1.1, z);
     world.add(locker);
-    colliders.push(new THREE.Box3().setFromObject(locker));
+    addStaticCollider(locker);
   });
 
   const coverSpots = [
@@ -262,17 +274,19 @@ function makeMap() {
     const c = box(1.3, 1.1 + (i % 4) * 0.28, 1.3, 0x2f3b49, { map: concreteTex, roughness: 0.83 });
     c.position.set(x, y, z);
     world.add(c);
-    colliders.push(new THREE.Box3().setFromObject(c));
+    addStaticCollider(c);
   });
 
   const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8 });
   door.position.set(-7.1, 1.2, -3.8);
   world.add(door);
+  visionOccluders.push(door);
   destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
 
   const weakWall = box(0.4, 2.4, 3.6, 0x735f4d, { map: concreteTex, roughness: 0.92 });
   weakWall.position.set(6.6, 1.2, -7.5);
   world.add(weakWall);
+  visionOccluders.push(weakWall);
   destructibles.push({ type: 'wall', hp: 70, mesh: weakWall, bounds: new THREE.Box3().setFromObject(weakWall), destroyed: false });
 
   const windowSpots = [
@@ -288,6 +302,7 @@ function makeMap() {
     glass.position.set(...pos);
     glass.rotation.y = rot;
     world.add(glass);
+    visionOccluders.push(glass);
     destructibles.push({ type: 'window', hp: 32, mesh: glass, bounds: new THREE.Box3().setFromObject(glass), destroyed: false, breachLane: i });
 
     const frame = box(size[0] + 0.16, size[1] + 0.2, size[2] + 0.16, 0x1b2533, { roughness: 0.55, metalness: 0.64 });
@@ -346,8 +361,23 @@ camera.position.copy(player.pos);
 
 function makeBot(team, role, pos) {
   const m = box(0.8, 1.8, 0.8, team === 'atk' ? 0x5894ff : 0xff6767);
+  m.castShadow = true;
   m.position.copy(pos);
   world.add(m);
+  const outline = box(0.92, 1.96, 0.92, team === 'atk' ? 0x62bcff : 0xff7777, {
+    roughness: 0.2,
+    metalness: 0,
+    emissive: team === 'atk' ? 0x1f86ff : 0xb73434,
+    emissiveIntensity: 1.1
+  });
+  outline.material.transparent = true;
+  outline.material.opacity = 0;
+  outline.material.depthTest = false;
+  outline.material.depthWrite = false;
+  outline.renderOrder = 20;
+  outline.visible = false;
+  world.add(outline);
+  teammateOutlines.push({ mesh: outline, owner: m, team });
   return {
     team, role, mesh: m, hp: 100, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
     shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4
@@ -365,6 +395,21 @@ function spawnTeams() {
 }
 spawnTeams();
 
+const roomZones = [
+  { name: 'Bomb Room', min: new THREE.Vector3(-4.2, 0, -14.8), max: new THREE.Vector3(4.5, 4, -7.8) },
+  { name: 'Server Hall', min: new THREE.Vector3(-12.8, 0, -8.8), max: new THREE.Vector3(-3.9, 4, 2.4) },
+  { name: 'Archives', min: new THREE.Vector3(4, 0, -8.2), max: new THREE.Vector3(14.8, 4, 4) },
+  { name: 'Front Office', min: new THREE.Vector3(-13.5, 0, 2.6), max: new THREE.Vector3(2.8, 4, 14.8) },
+  { name: 'Loading Dock', min: new THREE.Vector3(2.9, 0, 3.2), max: new THREE.Vector3(14.8, 4, 14.8) }
+];
+
+function getPlayerArea() {
+  const p = player.pos;
+  const zone = roomZones.find((r) => p.x >= r.min.x && p.x <= r.max.x && p.z >= r.min.z && p.z <= r.max.z);
+  if (zone) return `INSIDE · ${zone.name.toUpperCase()}`;
+  return 'OUTSIDE · STAGING';
+}
+
 function updateUI() {
   ui.phase.textContent = state.bombPlanted ? 'POST-PLANT' : state.phase.toUpperCase() + ' PHASE';
   const t = state.bombPlanted ? state.bombTimer : state.phaseTime;
@@ -374,6 +419,7 @@ function updateUI() {
   ui.health.textContent = `HP ${Math.max(0, Math.floor(player.hp))}`;
   ui.ammo.textContent = `AMMO ${player.ammo} / ${player.reserve}`;
   ui.stance.textContent = player.crouch ? 'CROUCH' : (player.sprint ? 'SPRINT' : 'STAND');
+  ui.teamRole.textContent = `${player.team === 'atk' ? 'ATTACKER' : 'DEFENDER'} · ${player.role.toUpperCase()} · ${getPlayerArea()}`;
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
   ui.gadgetB.textContent = `[F] Scout Pulse: ${player.pulseCd <= 0 ? 'Ready' : player.pulseCd.toFixed(1) + 's'}`;
   if (state.phase === 'prep') {
@@ -737,10 +783,13 @@ function updatePlayer(dt) {
     return;
   }
 
-  player.yaw -= input.mouseDx * 0.002;
-  player.pitch -= input.mouseDy * 0.002;
+  const maxMouseStep = 90;
+  const clampedDx = THREE.MathUtils.clamp(input.mouseDx, -maxMouseStep, maxMouseStep);
+  const clampedDy = THREE.MathUtils.clamp(input.mouseDy, -maxMouseStep, maxMouseStep);
+  player.yaw -= clampedDx * 0.00165;
+  player.pitch -= clampedDy * 0.00145;
   input.mouseDx = 0; input.mouseDy = 0;
-  player.pitch = THREE.MathUtils.clamp(player.pitch, -1.35, 1.35);
+  player.pitch = THREE.MathUtils.clamp(player.pitch, -1.2, 1.2);
 
   player.crouch = input.keys['ControlLeft'] || input.keys['ControlRight'];
   player.sprint = !!((input.keys['ShiftLeft'] || input.keys['ShiftRight']) && !player.crouch && !input.ads);
@@ -767,9 +816,11 @@ function updatePlayer(dt) {
   camera.updateProjectionMatrix();
 
   const leanOffset = input.lean * (input.ads ? 0.22 : 0.14);
+  const leanRoll = input.lean * (input.ads ? 0.06 : 0.1);
   const shake = shakeT > 0 ? (Math.random() - 0.5) * shakeT * 0.8 : 0;
   camera.position.copy(player.pos).add(new THREE.Vector3(Math.cos(player.yaw) * leanOffset, player.crouch ? -0.45 : 0, Math.sin(player.yaw) * leanOffset));
-  camera.rotation.set(player.pitch + shake, player.yaw, 0);
+  camera.rotation.order = 'YXZ';
+  camera.rotation.set(player.pitch + shake, player.yaw, leanRoll);
 
   const moveSpeed = Math.min(1, move.length() + (player.sprint ? 0.45 : 0.2));
   const bob = Math.sin(performance.now() * (player.sprint ? 0.018 : 0.012)) * 0.008 * moveSpeed;
@@ -788,7 +839,7 @@ function updatePlayer(dt) {
     shootCd = input.ads ? 0.14 : 0.11;
     player.ammo--;
     player.recoil = Math.min(0.08, player.recoil + 0.01);
-    const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     shoot(player, dir, 34, (input.ads ? 0.012 : 0.022) + player.recoil);
   }
   player.recoil *= 0.92;
@@ -881,6 +932,23 @@ function tick() {
       if (t.life <= 0) t.mesh.visible = false;
     });
     for (let i = trails.length - 1; i >= 0; i--) if (trails[i].life <= 0) trails.splice(i, 1);
+
+    teammateOutlines.forEach((entry) => {
+      const ownerBot = bots.find((b) => b.mesh === entry.owner);
+      if (!ownerBot || ownerBot.dead || ownerBot.team !== player.team || !player.alive) {
+        entry.mesh.visible = false;
+        return;
+      }
+      entry.mesh.position.copy(ownerBot.mesh.position);
+      const toMate = ownerBot.mesh.position.clone().setY(1.35).sub(player.pos);
+      const distance = toMate.length();
+      raycaster.set(player.pos.clone().setY(1.4), toMate.normalize());
+      const blockers = visionOccluders.filter((m) => m.visible !== false);
+      const hit = raycaster.intersectObjects(blockers, false)[0];
+      const occluded = !!hit && hit.distance < distance;
+      entry.mesh.visible = occluded && distance > 1.5;
+      entry.mesh.material.opacity = occluded ? THREE.MathUtils.clamp(0.9 - distance / 24, 0.25, 0.75) : 0;
+    });
   }
 
   flickerLights.forEach((l, i) => {
