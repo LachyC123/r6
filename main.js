@@ -134,6 +134,36 @@ const navNodes = [
   new THREE.Vector3(-10, 0, -8), new THREE.Vector3(-4, 0, -8), new THREE.Vector3(4, 0, -8), new THREE.Vector3(10, 0, -8)
 ];
 
+const teamSpawns = {
+  atk: [
+    new THREE.Vector3(-16.2, 1, 12.8),
+    new THREE.Vector3(-15.1, 1, 8.1),
+    new THREE.Vector3(0.2, 1, 16.1),
+    new THREE.Vector3(14.5, 1, -12.4)
+  ],
+  def: [
+    new THREE.Vector3(-1.2, 1, -11.2),
+    new THREE.Vector3(0.9, 1, -10.3),
+    new THREE.Vector3(2.1, 1, -12.2),
+    new THREE.Vector3(-2.4, 1, -9.8)
+  ]
+};
+
+const prepSpots = {
+  atk: [
+    new THREE.Vector3(-15.2, 1, 7),
+    new THREE.Vector3(0.8, 1, 15),
+    new THREE.Vector3(14.2, 1, -11.1),
+    new THREE.Vector3(-14.4, 1, 5.7)
+  ],
+  def: [
+    new THREE.Vector3(-2.4, 1, -10.8),
+    new THREE.Vector3(1.9, 1, -11.8),
+    new THREE.Vector3(0.4, 1, -9.5),
+    new THREE.Vector3(2.8, 1, -10.2)
+  ]
+};
+
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function beep(freq = 200, len = 0.05, type = 'triangle', vol = 0.03) {
   const o = audioCtx.createOscillator();
@@ -308,7 +338,7 @@ function makeMap() {
 makeMap();
 
 const player = {
-  team: 'atk', role: 'Planbreaker', hp: 100, pos: new THREE.Vector3(-12, 1.7, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
+  team: 'atk', role: 'Planbreaker', hp: 100, pos: new THREE.Vector3(-16, 1.7, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   grounded: true, crouch: false, sprint: false, ammo: 30, reserve: 90, recoil: 0, spread: 0.015,
   breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, alive: true
 };
@@ -326,11 +356,11 @@ function makeBot(team, role, pos) {
 
 function spawnTeams() {
   bots.length = 0;
-  const atkRoles = ['Planter', 'Support', 'Fragger'];
-  const defRoles = ['Anchor', 'Roamer', 'Intel'];
-  for (let i = 0; i < 3; i++) {
-    bots.push(makeBot('atk', atkRoles[i], new THREE.Vector3(-12.5 + i * 1.8, 1, 11.6 - i * 0.7)));
-    bots.push(makeBot('def', defRoles[i], new THREE.Vector3(10.8 - i * 1.6, 1, -10.8 + i * 1.1)));
+  const atkRoles = ['Planter', 'Support', 'Fragger', 'Entry'];
+  const defRoles = ['Anchor', 'Roamer', 'Intel', 'Denier'];
+  for (let i = 0; i < atkRoles.length; i++) {
+    bots.push(makeBot('atk', atkRoles[i], teamSpawns.atk[i].clone()));
+    bots.push(makeBot('def', defRoles[i], teamSpawns.def[i].clone()));
   }
 }
 spawnTeams();
@@ -347,7 +377,7 @@ function updateUI() {
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
   ui.gadgetB.textContent = `[F] Scout Pulse: ${player.pulseCd <= 0 ? 'Ready' : player.pulseCd.toFixed(1) + 's'}`;
   if (state.phase === 'prep') {
-    ui.objective.innerHTML = 'Prep Phase: Locate Bomb Room, mark windows, and set breach routes.';
+    ui.objective.innerHTML = 'Prep Phase: Attackers stage outside to plan breaches while defenders set up inside Bomb Room.';
   } else if (state.bombPlanted) {
     ui.objective.innerHTML = '<span class="warn">Post-Plant: Defend the Rift Charge detonation.</span>';
   } else {
@@ -515,11 +545,19 @@ spawnDefGadgets();
 function botThink(bot, dt) {
   if (bot.dead) return;
   if (state.phase === 'prep' && !state.bombPlanted) {
-    const prepHold = bot.team === 'atk' ? new THREE.Vector3(-11.5, 1, 10.5) : new THREE.Vector3(10.5, 1, -10.5);
-    const drift = prepHold.clone().add(new THREE.Vector3((bot.mesh.id % 3) * 1.1, 0, (bot.mesh.id % 2) * 0.8));
+    const prepLane = prepSpots[bot.team][bot.mesh.id % prepSpots[bot.team].length];
+    const drift = prepLane.clone().add(new THREE.Vector3((bot.mesh.id % 2) * 0.7, 0, (bot.mesh.id % 3) * 0.45));
     const settle = drift.sub(bot.mesh.position);
     settle.y = 0;
-    if (settle.lengthSq() > 0.08) bot.mesh.position.addScaledVector(settle.normalize(), dt * 1.25);
+    if (settle.lengthSq() > 0.08) bot.mesh.position.addScaledVector(settle.normalize(), dt * (bot.team === 'atk' ? 1.6 : 1.2));
+
+    if (bot.team === 'def') {
+      const prepWindow = destructibles.find(d => !d.destroyed && d.type === 'window' && d.mesh.position.distanceTo(bot.mesh.position) < 4.2);
+      if (prepWindow) {
+        prepWindow.hp = Math.min(48, prepWindow.hp + dt * 8);
+        prepWindow.mesh.material.opacity = Math.min(0.75, prepWindow.mesh.material.opacity + dt * 0.12);
+      }
+    }
     bot.shootTimer = 0;
     bot.alert = Math.max(0, bot.alert - dt);
     return;
@@ -545,9 +583,9 @@ function botThink(bot, dt) {
   if (bot.team === 'atk' && state.phase === 'action' && attackWindows.length) {
     const preferredWindow = attackWindows.sort((a, b) => a.mesh.position.distanceTo(myPos) - b.mesh.position.distanceTo(myPos))[0];
     const laneDir = preferredWindow.mesh.position.clone().sub(state.objectivePos).setY(0).normalize();
-    const staging = preferredWindow.mesh.position.clone().addScaledVector(laneDir, 2.1);
+    const staging = preferredWindow.mesh.position.clone().addScaledVector(laneDir, 3.1);
     target = staging;
-    if (myPos.distanceTo(preferredWindow.mesh.position) < 3.2) {
+    if (myPos.distanceTo(preferredWindow.mesh.position) < 4.5) {
       bot.shootTimer -= dt;
       if (bot.shootTimer <= 0) {
         shoot(bot, preferredWindow.mesh.position.clone().setY(1.5).sub(myPos).normalize(), 25, 0.035);
@@ -558,6 +596,7 @@ function botThink(bot, dt) {
 
   if (bot.team === 'def' && bot.role === 'Anchor') target = state.objectivePos.clone().add(new THREE.Vector3(Math.sin(performance.now() * 0.001) * 1.5, 0, 1));
   else if (bot.team === 'def' && bot.role === 'Roamer') target = navNodes[(Math.floor(performance.now() * 0.001 + bot.mesh.id) % navNodes.length)];
+  else if (bot.team === 'def' && bot.role === 'Denier') target = state.objectivePos.clone().add(new THREE.Vector3(2.8, 0, -0.4));
   else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget && !attackWindows.length) target = bot.pingTarget;
   if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
 
@@ -629,7 +668,7 @@ function resetRound() {
   state.phaseTime = state.phaseConfig.prep;
   state.bombPlanted = false;
   state.bombTimer = state.phaseConfig.postPlant;
-  player.hp = 100; player.alive = true; player.pos.set(-12, 1.7, 12); player.ammo = 30; player.breachCharges = 2;
+  player.hp = 100; player.alive = true; player.pos.copy(teamSpawns[player.team][0]).setY(1.7); player.ammo = 30; player.breachCharges = 2;
   camera.position.copy(player.pos);
   destructibles.forEach(d => {
     d.destroyed = false;
