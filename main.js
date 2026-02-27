@@ -268,6 +268,22 @@ const defenderHoldPoints = {
   Denier: [new THREE.Vector3(2.8, 1, -10.4), new THREE.Vector3(-3.2, 1, -10.7)]
 };
 
+const attackerExecuteOffsets = {
+  Planter: new THREE.Vector3(0, 0, 0.4),
+  Entry: new THREE.Vector3(-2.6, 0, 1.6),
+  Fragger: new THREE.Vector3(2.7, 0, 2.1),
+  Support: new THREE.Vector3(0, 0, 3.6)
+};
+
+const roomClearCorners = [
+  new THREE.Vector3(-3.2, 1, -8.6),
+  new THREE.Vector3(3.1, 1, -8.5),
+  new THREE.Vector3(-3.1, 1, -13.4),
+  new THREE.Vector3(3.2, 1, -13.5),
+  new THREE.Vector3(-6.8, 1, -8.6),
+  new THREE.Vector3(6.9, 1, -8.5)
+];
+
 function isInsideBuilding(pos) {
   return Math.abs(pos.x) < 14.3 && Math.abs(pos.z) < 14.3;
 }
@@ -652,7 +668,11 @@ function makeBot(team, role, pos, spawnIndex = 0) {
     shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4,
     setupDone: false, spawnIndex, dronePhase: false, objectiveKnown: false, gunMesh: weapon.gunRoot, gunMuzzle: weapon.muzzle,
     strafeDir: Math.random() > 0.5 ? 1 : -1, strafeTimer: 0.5 + Math.random() * 0.8,
-    aggression: 0.75 + Math.random() * 0.45, discipline: 0.65 + Math.random() * 0.3, crouchBias: Math.random(), inCover: false
+    aggression: 0.75 + Math.random() * 0.45, discipline: 0.65 + Math.random() * 0.3, crouchBias: Math.random(), inCover: false,
+    leftLeg, rightLeg, leftArm, rightArm, helmet,
+    gait: Math.random() * Math.PI * 2, lean: 0, task: 'hold',
+    cornerIndex: spawnIndex % roomClearCorners.length, cornerLookTimer: 0.5 + Math.random() * 1.2,
+    scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0
   };
 }
 
@@ -952,6 +972,42 @@ function getClosestEntryPoint(pos) {
   return breachables[0];
 }
 
+function getRoleBreachPoint(bot) {
+  const breachables = destructibles.filter((d) => !d.destroyed && (d.type === 'window' || d.type === 'door' || d.type === 'wall'));
+  if (!breachables.length) return null;
+  const roleBias = bot.role === 'Entry' ? ['door', 'window', 'wall'] : bot.role === 'Support' ? ['wall', 'door', 'window'] : ['window', 'door', 'wall'];
+  breachables.sort((a, b) => {
+    const apri = roleBias.indexOf(a.type);
+    const bpri = roleBias.indexOf(b.type);
+    if (apri !== bpri) return apri - bpri;
+    return a.mesh.position.distanceTo(bot.mesh.position) - b.mesh.position.distanceTo(bot.mesh.position);
+  });
+  return breachables[0];
+}
+
+function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
+  const gaitSpeed = THREE.MathUtils.clamp(moveAmount * 3.2, 0, 1.8);
+  bot.gait += dt * (3.6 + gaitSpeed * 4.2);
+  bot.lastMoveSpeed = THREE.MathUtils.lerp(bot.lastMoveSpeed, moveAmount, dt * 8);
+  const swing = Math.sin(bot.gait) * (0.18 + bot.lastMoveSpeed * 0.24);
+  const armSwing = Math.sin(bot.gait + Math.PI * 0.5) * (0.12 + bot.lastMoveSpeed * 0.14);
+  const adsBias = hostileVisible ? 1 : 0;
+
+  bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, swing, dt * 10);
+  bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -swing, dt * 10);
+  bot.leftArm.rotation.x = THREE.MathUtils.lerp(bot.leftArm.rotation.x, -armSwing - adsBias * 0.6, dt * 10);
+  bot.rightArm.rotation.x = THREE.MathUtils.lerp(bot.rightArm.rotation.x, armSwing - 0.2 - adsBias * 0.45, dt * 10);
+
+  bot.lean = THREE.MathUtils.lerp(bot.lean, THREE.MathUtils.clamp(bot.strafeDir * bot.lastMoveSpeed * 0.25, -0.2, 0.2), dt * 6);
+  bot.mesh.rotation.z = bot.lean;
+  bot.mesh.position.y = THREE.MathUtils.lerp(bot.mesh.position.y, 1.02 + Math.abs(Math.sin(bot.gait * 2.1)) * 0.03 * bot.lastMoveSpeed, dt * 10);
+
+  if (bot.gunMesh && aimPoint) {
+    bot.gunMesh.lookAt(aimPoint.clone().setY(1.22));
+    bot.gunMesh.position.z = THREE.MathUtils.lerp(bot.gunMesh.position.z, hostileVisible ? -0.42 : -0.36, dt * 8);
+  }
+}
+
 function botThink(bot, dt) {
   if (bot.dead) return;
   if (state.phase === 'prep' && !state.bombPlanted) {
@@ -972,11 +1028,8 @@ function botThink(bot, dt) {
         const point = route[bot.droneRouteIndex % route.length];
         const step = point.clone().sub(bot.droneMesh.position);
         step.y = 0;
-        if (step.lengthSq() > 0.06) {
-          bot.droneMesh.position.addScaledVector(step.normalize(), dt * 2.6);
-        } else {
-          bot.droneRouteIndex = (bot.droneRouteIndex + 1) % route.length;
-        }
+        if (step.lengthSq() > 0.06) bot.droneMesh.position.addScaledVector(step.normalize(), dt * 2.6);
+        else bot.droneRouteIndex = (bot.droneRouteIndex + 1) % route.length;
         if (!bot.objectiveKnown && bot.droneMesh.position.distanceTo(state.objectivePos) < 2.6) {
           bot.objectiveKnown = true;
           setAttackerObjectiveKnown(`${bot.role} drone`);
@@ -984,6 +1037,7 @@ function botThink(bot, dt) {
       }
       bot.shootTimer = 0;
       bot.alert = Math.max(0, bot.alert - dt);
+      animateBotPose(bot, dt, 0, null, false);
       return;
     }
 
@@ -1035,11 +1089,14 @@ function botThink(bot, dt) {
 
     bot.shootTimer = 0;
     bot.alert = Math.max(0, bot.alert - dt);
+    animateBotPose(bot, dt, 0.2, state.objectivePos, false);
     return;
   }
 
   bot.gadgetCd -= dt;
-  const enemy = bot.team === 'atk' ? [...bots.filter(b => b.team === 'def' && !b.dead), ...(player.team === 'def' && player.alive ? [player] : [])] : [...bots.filter(b => b.team === 'atk' && !b.dead), ...(player.team === 'atk' && player.alive ? [player] : [])];
+  const enemy = bot.team === 'atk'
+    ? [...bots.filter(b => b.team === 'def' && !b.dead), ...(player.team === 'def' && player.alive ? [player] : [])]
+    : [...bots.filter(b => b.team === 'atk' && !b.dead), ...(player.team === 'atk' && player.alive ? [player] : [])];
   const myPos = bot.mesh.position;
   const visibleCandidates = enemy.filter((e) => {
     const targetPos = (e.mesh ? e.mesh.position : e.pos).clone().setY(1.2);
@@ -1047,6 +1104,7 @@ function botThink(bot, dt) {
   });
   visibleCandidates.sort((a, b) => (a.mesh ? a.mesh.position : a.pos).distanceTo(myPos) - (b.mesh ? b.mesh.position : b.pos).distanceTo(myPos));
   const visible = visibleCandidates[0];
+
   if (visible) {
     bot.alert = 2.5;
     bot.pingTarget = (visible.mesh ? visible.mesh.position : visible.pos).clone();
@@ -1062,64 +1120,93 @@ function botThink(bot, dt) {
     bot.gadgetCd = 8 + Math.random() * 4;
   }
 
-  let target = state.objectivePos;
+  let target = state.objectivePos.clone();
+  let aimPoint = visible ? (visible.mesh ? visible.mesh.position.clone() : visible.pos.clone()) : null;
+  const activeBreach = getRoleBreachPoint(bot) || getClosestEntryPoint(myPos);
+  const attackWindows = destructibles.filter(d => !d.destroyed && d.type === 'window');
+
   if (visible && bot.hp < 65) {
     const fallback = getNearestTacticalCover(myPos, bot.pingTarget || state.objectivePos, bot.team);
-    if (fallback) target = fallback;
+    if (fallback) {
+      target = fallback;
+      bot.task = 'fallback';
+    }
   }
 
-  const activeBreach = getClosestEntryPoint(myPos);
-  const attackWindows = destructibles.filter(d => !d.destroyed && d.type === 'window');
   if (bot.team === 'atk' && state.phase === 'action' && activeBreach) {
-    const laneDir = activeBreach.mesh.position.clone().sub(state.objectivePos).setY(0).normalize();
-    const staging = activeBreach.mesh.position.clone().addScaledVector(laneDir, 2.6);
-    target = staging;
-    if (myPos.distanceTo(activeBreach.mesh.position) < 4.6) {
-      bot.shootTimer -= dt;
-      if (bot.shootTimer <= 0) {
-        const breachAimHeight = activeBreach.type === 'door' ? 1.1 : 1.5;
-        shoot(bot, activeBreach.mesh.position.clone().setY(breachAimHeight).sub(myPos).normalize(), 25, 0.035);
-        bot.shootTimer = 0.22 + Math.random() * 0.2;
+    const toObj = state.objectivePos.clone().sub(activeBreach.mesh.position).setY(0).normalize();
+    const stackRight = new THREE.Vector3(-toObj.z, 0, toObj.x);
+    const spread = (bot.spawnIndex - 1.5) * 1.45;
+    const staging = activeBreach.mesh.position.clone()
+      .addScaledVector(toObj, -2.9)
+      .addScaledVector(stackRight, spread);
+
+    if (!activeBreach.destroyed) {
+      bot.task = 'breach';
+      target = staging;
+      aimPoint = activeBreach.mesh.position.clone().setY(activeBreach.type === 'door' ? 1.05 : 1.45);
+      if (myPos.distanceTo(activeBreach.mesh.position) < 5.1) {
+        bot.shootTimer -= dt;
+        if (bot.shootTimer <= 0) {
+          shoot(bot, aimPoint.clone().sub(myPos).normalize(), bot.role === 'Support' ? 32 : 24, 0.03);
+          bot.shootTimer = bot.role === 'Entry' ? 0.17 + Math.random() * 0.14 : 0.22 + Math.random() * 0.18;
+        }
       }
+    } else {
+      bot.task = 'clear';
+      bot.cornerLookTimer -= dt;
+      if (bot.cornerLookTimer <= 0) {
+        bot.cornerLookTimer = 0.65 + Math.random() * 1.1;
+        bot.cornerIndex = (bot.cornerIndex + 1) % roomClearCorners.length;
+      }
+      const corner = roomClearCorners[(bot.cornerIndex + bot.spawnIndex) % roomClearCorners.length].clone();
+      const executeOffset = attackerExecuteOffsets[bot.role] || new THREE.Vector3();
+      target = (bot.role === 'Planter' && !state.bombPlanted)
+        ? state.objectivePos.clone().add(executeOffset)
+        : corner;
+      if (!visible) aimPoint = corner;
     }
   }
 
   if (bot.team === 'def' && defenderHoldPoints[bot.role]) {
+    bot.task = 'hold';
     const hold = defenderHoldPoints[bot.role];
     target = hold[Math.floor((performance.now() * 0.001 + bot.spawnIndex) % hold.length)].clone();
-    if (state.atkObjectiveKnown && bot.alert <= 0) {
-      target = state.objectivePos.clone().add(new THREE.Vector3((bot.spawnIndex - 1.5) * 1.1, 0, -1.8));
-    }
+    if (state.atkObjectiveKnown && bot.alert <= 0) target = state.objectivePos.clone().add(new THREE.Vector3((bot.spawnIndex - 1.5) * 1.1, 0, -1.8));
     if (bot.role === 'Roamer' && activeBreach && activeBreach.mesh.position.distanceTo(state.objectivePos) > 4) {
+      bot.task = 'rotate';
       target = activeBreach.mesh.position.clone().add(new THREE.Vector3(bot.spawnIndex % 2 ? 1.5 : -1.5, 0, 1.2));
     }
   } else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget && !attackWindows.length) {
     const flank = bot.pingTarget.clone().add(new THREE.Vector3((bot.spawnIndex % 2 ? 1 : -1) * 2.4, 0, 1.4));
     target = flank;
+    bot.task = 'flank';
+    if (!visible) aimPoint = flank;
   }
-  if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter') {
-    const offset = new THREE.Vector3((bot.spawnIndex - 1.5) * 0.8, 0, 1 + (bot.spawnIndex % 2) * 1.1);
-    target = state.objectivePos.clone().add(offset);
+
+  if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter' && !activeBreach) {
+    target = state.objectivePos.clone().add(attackerExecuteOffsets[bot.role] || new THREE.Vector3(0, 0, 2));
   }
   if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
 
   const navTarget = getBotNavigationTarget(myPos, target);
   const move = navTarget.clone().sub(myPos); move.y = 0;
+  let moveAmount = 0;
   if (move.length() > 0.35) {
     move.normalize();
     const moveSpeed = (bot.team === 'atk' ? 2.7 : 2.35) * (bot.inCover ? 0.86 : 1) * (bot.retreat ? 1.05 : 1);
     const step = move.clone().multiplyScalar(moveSpeed * dt);
+    moveAmount = step.length();
     const next = myPos.clone().add(step);
-    const blockedNext = isBlockedPoint(next);
-    if (!blockedNext) {
-      myPos.copy(next);
-    } else {
+    if (!isBlockedPoint(next)) myPos.copy(next);
+    else {
       const sidestep = new THREE.Vector3(-move.z, 0, move.x).multiplyScalar(step.length() * 0.8 * bot.strafeDir);
       const alt = myPos.clone().add(sidestep);
-      const blockedAlt = isBlockedPoint(alt);
-      if (!blockedAlt) myPos.copy(alt);
+      if (!isBlockedPoint(alt)) myPos.copy(alt);
       else bot.strafeDir *= -1;
     }
+    const yawTarget = Math.atan2(move.x, move.z);
+    bot.mesh.rotation.y = THREE.MathUtils.lerp(bot.mesh.rotation.y, yawTarget, dt * 8);
   }
 
   if (visible) {
@@ -1135,13 +1222,15 @@ function botThink(bot, dt) {
       const side = new THREE.Vector3(-face.z, 0, face.x).multiplyScalar(bot.strafeDir * dt * 1.1);
       const probe = myPos.clone().add(side);
       if (!isBlockedPoint(probe)) myPos.add(side);
-      if (bot.gunMesh) bot.gunMesh.lookAt((visible.mesh ? visible.mesh.position : visible.pos).clone().setY(1.25));
+      bot.mesh.rotation.y = THREE.MathUtils.lerp(bot.mesh.rotation.y, Math.atan2(face.x, face.z), dt * 12);
+      aimPoint = (visible.mesh ? visible.mesh.position.clone() : visible.pos.clone()).setY(1.22);
     }
-  } else if (bot.gunMesh) {
-    bot.gunMesh.rotation.set(0, 0, 0);
+  } else if (!aimPoint) {
+    const forward = new THREE.Vector3(Math.sin(bot.mesh.rotation.y), 0, Math.cos(bot.mesh.rotation.y));
+    aimPoint = myPos.clone().addScaledVector(forward, 3.5).setY(1.2);
   }
 
-  bot.inCover = !!(target && target !== state.objectivePos && target.distanceTo(myPos) < 1.8);
+  bot.inCover = !!(target && target.distanceTo(myPos) < 1.8 && bot.task !== 'clear');
   const botAccuracy = 0.028 - Math.min(0.012, bot.discipline * 0.01) + (bot.inCover ? -0.004 : 0.005);
   bot.mesh.scale.y = THREE.MathUtils.lerp(bot.mesh.scale.y, visible && bot.crouchBias + bot.discipline > 1.05 ? 0.88 : 1, dt * 7);
 
@@ -1161,7 +1250,8 @@ function botThink(bot, dt) {
     }
   }
 
-  // planter AI
+  animateBotPose(bot, dt, moveAmount, aimPoint, !!visible || bot.task === 'breach');
+
   if (bot.team === 'atk' && bot.role === 'Planter' && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 1.8) {
     bot.plant = (bot.plant || 0) + dt;
     if (bot.plant > 3) {
@@ -1170,7 +1260,6 @@ function botThink(bot, dt) {
     }
   }
 
-  // tripwire check
   gadgets.filter(g => g.type === 'tripwire').forEach(t => {
     if (t.mesh.position.distanceTo(myPos) < 0.7 && bot.team === 'atk') {
       bot.hp -= 18; t.mesh.visible = false; t.type = 'spent';
