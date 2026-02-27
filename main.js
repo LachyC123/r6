@@ -14,6 +14,7 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x050911, 16, 95);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 180);
+scene.add(camera);
 const world = new THREE.Group();
 scene.add(world);
 
@@ -62,6 +63,48 @@ const gadgets = [];
 const pings = [];
 const impacts = [];
 const bullets = [];
+const trails = [];
+
+const weaponRig = new THREE.Group();
+const weaponMuzzle = new THREE.Object3D();
+
+function buildWeaponViewModel() {
+  const gunRoot = new THREE.Group();
+
+  const body = box(0.18, 0.14, 0.9, 0x212734, { roughness: 0.42, metalness: 0.72 });
+  body.position.set(0, -0.01, -0.42);
+  gunRoot.add(body);
+
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.024, 0.024, 0.6, 10),
+    new THREE.MeshStandardMaterial({ color: 0x161b24, roughness: 0.35, metalness: 0.9 })
+  );
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0.01, 0, -0.86);
+  gunRoot.add(barrel);
+
+  const sight = box(0.08, 0.06, 0.16, 0x1f2631, { roughness: 0.35, metalness: 0.78 });
+  sight.position.set(0, 0.11, -0.36);
+  gunRoot.add(sight);
+
+  const grip = box(0.08, 0.26, 0.12, 0x2f3642, { roughness: 0.66, metalness: 0.42 });
+  grip.rotation.x = -0.25;
+  grip.position.set(-0.01, -0.14, -0.21);
+  gunRoot.add(grip);
+
+  const mag = box(0.09, 0.22, 0.13, 0x262d38, { roughness: 0.38, metalness: 0.78 });
+  mag.rotation.x = -0.14;
+  mag.position.set(0, -0.16, -0.34);
+  gunRoot.add(mag);
+
+  weaponMuzzle.position.set(0, 0.004, -1.17);
+  gunRoot.add(weaponMuzzle);
+
+  weaponRig.add(gunRoot);
+  weaponRig.position.set(0.33, -0.29, -0.45);
+  camera.add(weaponRig);
+}
+buildWeaponViewModel();
 
 const damageVignette = document.getElementById('vignette');
 const flickerLights = [];
@@ -303,11 +346,14 @@ function updateUI() {
 
 function shoot(shooter, dir, damage = 34, spread = 0.02) {
   const d = dir.clone().add(new THREE.Vector3((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread)).normalize();
-  raycaster.set(shooter === player ? camera.position : shooter.mesh.position.clone().setY(1.3), d);
+  const shotStart = shooter === player ? weaponMuzzle.getWorldPosition(new THREE.Vector3()) : shooter.mesh.position.clone().setY(1.3);
+  raycaster.set(shotStart, d);
   const botMeshes = bots.filter(b => !b.dead && b.team !== (shooter.team || shooter.team === undefined ? shooter.team : player.team)).map(b => b.mesh);
   const hitBot = raycaster.intersectObjects(botMeshes, false)[0];
   const hitDes = raycaster.intersectObjects(destructibles.filter(x => !x.destroyed).map(d => d.mesh), false)[0];
   const nearest = !hitBot ? hitDes : !hitDes ? hitBot : (hitBot.distance < hitDes.distance ? hitBot : hitDes);
+  const endPoint = nearest ? nearest.point.clone() : shotStart.clone().addScaledVector(d, 70);
+  spawnTrail(shotStart, endPoint, shooter === player);
   if (nearest) {
     const p = nearest.point;
     const s = box(0.12, 0.12, 0.12, 0xfff0a0);
@@ -327,6 +373,23 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
     }
   }
   beep(180 + Math.random() * 50, 0.04, 'square', 0.02);
+}
+
+function spawnTrail(start, end, fromPlayer) {
+  const dir = end.clone().sub(start);
+  const len = dir.length();
+  if (len <= 0.001) return;
+  const mid = start.clone().addScaledVector(dir, 0.5);
+  const trail = box(0.018, 0.018, len, fromPlayer ? 0xffe1a4 : 0xff8f74, {
+    emissive: fromPlayer ? 0xff9e30 : 0xcc4028,
+    emissiveIntensity: 0.95,
+    roughness: 0.22,
+    metalness: 0.15
+  });
+  trail.position.copy(mid);
+  trail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize());
+  world.add(trail);
+  trails.push({ mesh: trail, life: 0.08 });
 }
 
 function destroyDestructible(d) {
@@ -584,6 +647,7 @@ const clock = new THREE.Clock();
 
 function updatePlayer(dt) {
   if (!player.alive || state.gameOver) return;
+  weaponRig.visible = !player.droneActive && !player.camMode;
 
   if (player.camMode) {
     if (input.keys['Space']) player.camMode = false;
@@ -636,6 +700,18 @@ function updatePlayer(dt) {
   const shake = shakeT > 0 ? (Math.random() - 0.5) * shakeT * 0.8 : 0;
   camera.position.copy(player.pos).add(new THREE.Vector3(Math.cos(player.yaw) * leanOffset, player.crouch ? -0.45 : 0, Math.sin(player.yaw) * leanOffset));
   camera.rotation.set(player.pitch + shake, player.yaw, 0);
+
+  const moveSpeed = Math.min(1, move.length() + (player.sprint ? 0.45 : 0.2));
+  const bob = Math.sin(performance.now() * (player.sprint ? 0.018 : 0.012)) * 0.008 * moveSpeed;
+  const targetGunX = input.ads ? 0.06 : 0.33;
+  const targetGunY = input.ads ? -0.2 : -0.29;
+  const targetGunZ = input.ads ? -0.24 : -0.45;
+  weaponRig.position.x = THREE.MathUtils.lerp(weaponRig.position.x, targetGunX, dt * 11);
+  weaponRig.position.y = THREE.MathUtils.lerp(weaponRig.position.y, targetGunY + bob, dt * 11);
+  weaponRig.position.z = THREE.MathUtils.lerp(weaponRig.position.z, targetGunZ, dt * 11);
+  weaponRig.rotation.y = THREE.MathUtils.lerp(weaponRig.rotation.y, input.ads ? 0 : -0.2, dt * 10);
+  weaponRig.rotation.x = THREE.MathUtils.lerp(weaponRig.rotation.x, player.recoil * 4 + bob * 1.8, dt * 12);
+  weaponRig.rotation.z = THREE.MathUtils.lerp(weaponRig.rotation.z, input.lean * 0.06, dt * 12);
 
   shootCd -= dt;
   if (input.fire && shootCd <= 0 && player.ammo > 0) {
@@ -727,6 +803,14 @@ function tick() {
 
     bullets.forEach(b => { b.life -= dt; b.vel.y -= dt * 5; b.mesh.position.addScaledVector(b.vel, dt); if (b.life <= 0) b.mesh.visible = false; });
     for (let i = bullets.length - 1; i >= 0; i--) if (bullets[i].life <= 0) bullets.splice(i, 1);
+
+    trails.forEach(t => {
+      t.life -= dt;
+      t.mesh.material.opacity = Math.max(0, t.life / 0.08);
+      t.mesh.material.transparent = true;
+      if (t.life <= 0) t.mesh.visible = false;
+    });
+    for (let i = trails.length - 1; i >= 0; i--) if (trails[i].life <= 0) trails.splice(i, 1);
   }
 
   flickerLights.forEach((l, i) => {
