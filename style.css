@@ -13,7 +13,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: Inter, Segoe UI, system-ui, sans-serif;
-  background: #02060e;
+  background: radial-gradient(circle at 20% 20%, #0a1830 0%, #040913 42%, #02060e 100%);
   color: var(--fg);
 }
 #screenFx {
@@ -41,6 +41,7 @@ html, body {
   width: 100%;
   height: 100%;
   display: block;
+  filter: saturate(1.08) contrast(1.05);
 }
 #hud {
   position: fixed;
@@ -96,6 +97,7 @@ html, body {
   width: 18px;
   height: 18px;
   transform: translate(-50%, -50%);
+  animation: reticle-breathe 2.4s ease-in-out infinite;
 }
 .cross {
   position: absolute;
@@ -117,6 +119,7 @@ html, body {
   padding: 4px 8px;
   background: rgba(8, 15, 26, 0.6);
   border-right: 2px solid var(--accent);
+  box-shadow: 0 0 12px rgba(111, 180, 255, 0.15);
 }
 .hidden { display: none !important; }
 #scoreboard {
@@ -151,4 +154,9 @@ html, body {
 @keyframes pulse-border {
   0%, 100% { border-left-color: var(--accent); }
   50% { border-left-color: var(--accent-2); }
+}
+
+@keyframes reticle-breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.92; }
+  50% { transform: translate(-50%, -50%) scale(1.06); opacity: 1; }
 }

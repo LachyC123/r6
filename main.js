@@ -72,6 +72,8 @@ const bullets = [];
 const trails = [];
 const teammateOutlines = [];
 const visionOccluders = [];
+let objectiveIntelMesh;
+let objectiveIntelPulse;
 
 const weaponRig = new THREE.Group();
 const weaponMuzzle = new THREE.Object3D();
@@ -113,6 +115,31 @@ function buildWeaponViewModel() {
   camera.add(weaponRig);
 }
 buildWeaponViewModel();
+
+function buildBotWeapon(team = 'atk') {
+  const gunRoot = new THREE.Group();
+  const tint = team === 'atk' ? 0x2f4264 : 0x5f2a2a;
+  const body = box(0.11, 0.09, 0.46, tint, { roughness: 0.38, metalness: 0.74 });
+  body.position.set(0, 0.02, -0.22);
+  gunRoot.add(body);
+
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.014, 0.014, 0.34, 8),
+    new THREE.MeshStandardMaterial({ color: 0x10151e, roughness: 0.3, metalness: 0.95 })
+  );
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0.015, -0.5);
+  gunRoot.add(barrel);
+
+  const stock = box(0.09, 0.09, 0.15, 0x262d36, { roughness: 0.45, metalness: 0.65 });
+  stock.position.set(0, 0.01, 0.03);
+  gunRoot.add(stock);
+
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0, 0.015, -0.67);
+  gunRoot.add(muzzle);
+  return { gunRoot, muzzle };
+}
 
 const damageVignette = document.getElementById('vignette');
 const flickerLights = [];
@@ -283,6 +310,27 @@ function makeMap() {
   world.add(bombCrate);
   addStaticCollider(bombCrate);
 
+  objectiveIntelMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.95, 0.95, 0.08, 24),
+    new THREE.MeshStandardMaterial({ color: 0x7de6ff, emissive: 0x1e9ad3, emissiveIntensity: 1.2, transparent: true, opacity: 0.65 })
+  );
+  objectiveIntelMesh.position.set(0.2, 0.12, -11.2);
+  objectiveIntelMesh.material.depthTest = false;
+  objectiveIntelMesh.renderOrder = 30;
+  objectiveIntelMesh.visible = false;
+  world.add(objectiveIntelMesh);
+
+  objectiveIntelPulse = new THREE.Mesh(
+    new THREE.TorusGeometry(1.3, 0.08, 12, 34),
+    new THREE.MeshStandardMaterial({ color: 0x9de8ff, emissive: 0x2dbdff, emissiveIntensity: 1.1, transparent: true, opacity: 0.6 })
+  );
+  objectiveIntelPulse.position.set(0.2, 1.55, -11.2);
+  objectiveIntelPulse.rotation.x = Math.PI / 2;
+  objectiveIntelPulse.material.depthTest = false;
+  objectiveIntelPulse.renderOrder = 30;
+  objectiveIntelPulse.visible = false;
+  world.add(objectiveIntelPulse);
+
   const bombRack = box(4.8, 2.2, 1.1, 0x222d3b, { map: trimTex, roughness: 0.52, metalness: 0.55 });
   bombRack.position.set(-4.2, 1.1, -11.5);
   world.add(bombRack);
@@ -409,10 +457,14 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   outline.visible = false;
   world.add(outline);
   teammateOutlines.push({ mesh: outline, owner: m, team });
+  const weapon = buildBotWeapon(team);
+  weapon.gunRoot.position.set(0, 1.15, -0.38);
+  m.add(weapon.gunRoot);
   return {
     team, role, mesh: m, hp: 100, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
     shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4,
-    setupDone: false, spawnIndex, dronePhase: false, objectiveKnown: false
+    setupDone: false, spawnIndex, dronePhase: false, objectiveKnown: false, gunMesh: weapon.gunRoot, gunMuzzle: weapon.muzzle,
+    strafeDir: Math.random() > 0.5 ? 1 : -1, strafeTimer: 0.5 + Math.random() * 0.8
   };
 }
 
@@ -473,7 +525,9 @@ function updateUI() {
 
 function shoot(shooter, dir, damage = 34, spread = 0.02) {
   const d = dir.clone().add(new THREE.Vector3((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread)).normalize();
-  const shotStart = shooter === player ? weaponMuzzle.getWorldPosition(new THREE.Vector3()) : shooter.mesh.position.clone().setY(1.3);
+  const shotStart = shooter === player
+    ? weaponMuzzle.getWorldPosition(new THREE.Vector3())
+    : (shooter.gunMuzzle ? shooter.gunMuzzle.getWorldPosition(new THREE.Vector3()) : shooter.mesh.position.clone().setY(1.3));
   raycaster.set(shotStart, d);
   const botMeshes = bots.filter(b => !b.dead && b.team !== (shooter.team || shooter.team === undefined ? shooter.team : player.team)).map(b => b.mesh);
   const hitBot = raycaster.intersectObjects(botMeshes, false)[0];
@@ -500,6 +554,16 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
     }
   }
   beep(180 + Math.random() * 50, 0.04, 'square', 0.02);
+}
+
+function hasLineOfSight(from, to) {
+  const direction = to.clone().sub(from);
+  const distance = direction.length();
+  if (distance <= 0.001) return true;
+  raycaster.set(from, direction.normalize());
+  const blockers = visionOccluders.filter((m) => m.visible !== false);
+  const hit = raycaster.intersectObjects(blockers, false)[0];
+  return !hit || hit.distance > distance - 0.05;
 }
 
 function spawnTrail(start, end, fromPlayer) {
@@ -753,7 +817,10 @@ function botThink(bot, dt) {
   bot.gadgetCd -= dt;
   const enemy = bot.team === 'atk' ? [...bots.filter(b => b.team === 'def' && !b.dead), ...(player.team === 'def' && player.alive ? [player] : [])] : [...bots.filter(b => b.team === 'atk' && !b.dead), ...(player.team === 'atk' && player.alive ? [player] : [])];
   const myPos = bot.mesh.position;
-  const visible = enemy.find(e => (e.mesh ? e.mesh.position : e.pos).distanceTo(myPos) < 9);
+  const visible = enemy.find((e) => {
+    const targetPos = (e.mesh ? e.mesh.position : e.pos).clone().setY(1.2);
+    return targetPos.distanceTo(myPos) < 10.5 && hasLineOfSight(myPos.clone().setY(1.2), targetPos);
+  });
   if (visible) { bot.alert = 2.5; bot.pingTarget = (visible.mesh ? visible.mesh.position : visible.pos).clone(); }
   bot.alert -= dt;
 
@@ -794,7 +861,26 @@ function botThink(bot, dt) {
   const move = target.clone().sub(myPos); move.y = 0;
   if (move.length() > 0.35) {
     move.normalize();
-    myPos.add(move.multiplyScalar((bot.team === 'atk' ? 2.2 : 2) * dt));
+    myPos.add(move.multiplyScalar((bot.team === 'atk' ? 2.5 : 2.25) * dt));
+  }
+
+  if (visible) {
+    bot.strafeTimer -= dt;
+    if (bot.strafeTimer <= 0) {
+      bot.strafeDir *= -1;
+      bot.strafeTimer = 0.5 + Math.random() * 0.9;
+    }
+    const face = (visible.mesh ? visible.mesh.position : visible.pos).clone().sub(myPos);
+    face.y = 0;
+    if (face.lengthSq() > 0.001) {
+      face.normalize();
+      const side = new THREE.Vector3(-face.z, 0, face.x).multiplyScalar(bot.strafeDir * dt * 1.1);
+      const probe = myPos.clone().add(side);
+      if (!colliders.some(c => c.containsPoint(probe))) myPos.add(side);
+      if (bot.gunMesh) bot.gunMesh.lookAt((visible.mesh ? visible.mesh.position : visible.pos).clone().setY(1.25));
+    }
+  } else if (bot.gunMesh) {
+    bot.gunMesh.rotation.set(0, 0, 0);
   }
 
   if (visible && Math.random() > bot.reaction) {
@@ -928,18 +1014,21 @@ function updatePlayer(dt) {
   }
 
   if (player.droneActive && player.droneMesh) {
+    const droneSprint = input.keys['ShiftLeft'] || input.keys['ShiftRight'];
     const v = new THREE.Vector3((input.keys['KeyD'] ? 1 : 0) - (input.keys['KeyA'] ? 1 : 0), 0, (input.keys['KeyS'] ? 1 : 0) - (input.keys['KeyW'] ? 1 : 0));
     let lookDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
     if (v.lengthSq()) {
       v.normalize().applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
       lookDir = v;
-      const next = player.droneMesh.position.clone().addScaledVector(v, dt * 2.2);
+      const next = player.droneMesh.position.clone().addScaledVector(v, dt * (droneSprint ? 3.8 : 3));
       if (!jammersAffect(next, 'atk')) player.droneMesh.position.copy(next);
     }
-    camera.position.copy(player.droneMesh.position.clone().add(new THREE.Vector3(0, 0.45, 0)));
+    camera.position.copy(player.droneMesh.position.clone().add(new THREE.Vector3(0, 0.5, 0)));
     camera.lookAt(player.droneMesh.position.clone().add(lookDir));
     if (!state.atkObjectiveKnown && player.droneMesh.position.distanceTo(state.objectivePos) < 2.5) setAttackerObjectiveKnown('Player drone');
     if (input.keys['KeyC']) addPing(player.droneMesh.position.clone(), 'atk');
+    if (input.keys['Space']) player.droneMesh.position.y = THREE.MathUtils.lerp(player.droneMesh.position.y, 0.2, dt * 8);
+    else player.droneMesh.position.y = THREE.MathUtils.lerp(player.droneMesh.position.y, 0.08, dt * 10);
     return;
   }
 
@@ -1117,6 +1206,18 @@ function tick() {
   flickerLights.forEach((l, i) => {
     l.intensity = 0.65 + Math.sin(performance.now() * 0.003 + i * 2) * 0.16 + Math.random() * 0.05;
   });
+  if (objectiveIntelMesh && objectiveIntelPulse) {
+    const intelVisible = state.atkObjectiveKnown && player.team === 'atk';
+    objectiveIntelMesh.visible = intelVisible;
+    objectiveIntelPulse.visible = intelVisible;
+    if (intelVisible) {
+      const pulse = 1 + Math.sin(performance.now() * 0.006) * 0.2;
+      objectiveIntelMesh.scale.setScalar(pulse);
+      objectiveIntelPulse.scale.setScalar(0.92 + Math.sin(performance.now() * 0.007) * 0.18);
+      objectiveIntelPulse.material.opacity = 0.4 + Math.sin(performance.now() * 0.008) * 0.18;
+      objectiveIntelPulse.rotation.z += dt * 0.7;
+    }
+  }
   if (damageVignette) damageVignette.style.opacity = (0.45 + (1 - Math.max(0, player.hp) / 100) * 0.35).toFixed(2);
 
   updateUI();
