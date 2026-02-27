@@ -5,10 +5,13 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
 renderer.setClearColor(0x070b13);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x050911, 18, 90);
+scene.fog = new THREE.Fog(0x050911, 16, 95);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 180);
 const world = new THREE.Group();
@@ -29,9 +32,9 @@ const ui = {
   scoreboard: document.getElementById('scoreboard')
 };
 
-const ambient = new THREE.HemisphereLight(0x7a8cab, 0x182028, 0.6);
+const ambient = new THREE.HemisphereLight(0x89a6d4, 0x101820, 0.75);
 scene.add(ambient);
-const keyLight = new THREE.DirectionalLight(0xa8c8ff, 1.1);
+const keyLight = new THREE.DirectionalLight(0xa8c8ff, 1.35);
 keyLight.position.set(8, 16, 4);
 keyLight.castShadow = true;
 scene.add(keyLight);
@@ -58,6 +61,28 @@ const gadgets = [];
 const pings = [];
 const impacts = [];
 const bullets = [];
+
+const damageVignette = document.getElementById('vignette');
+const flickerLights = [];
+
+function makeNoiseTexture(base = '#253242', accent = '#1b2736') {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 2400; i++) {
+    const a = 0.04 + Math.random() * 0.12;
+    ctx.fillStyle = accent + Math.floor(a * 255).toString(16).padStart(2, '0');
+    ctx.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(8, 8);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
 
 const navNodes = [
   new THREE.Vector3(-10, 0, 8), new THREE.Vector3(-4, 0, 8), new THREE.Vector3(4, 0, 8), new THREE.Vector3(10, 0, 8),
@@ -86,17 +111,28 @@ function addFeed(text) {
   while (ui.feed.children.length > 6) ui.feed.lastChild.remove();
 }
 
-function box(w, h, d, c) {
-  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
+function box(w, h, d, c, opts = {}) {
+  const material = new THREE.MeshStandardMaterial({
+    color: c,
+    roughness: opts.roughness ?? 0.8,
+    metalness: opts.metalness ?? 0.08,
+    map: opts.map || null,
+    emissive: opts.emissive ?? 0x000000,
+    emissiveIntensity: opts.emissiveIntensity ?? 0
+  });
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
 }
 
 function makeMap() {
-  const floor = box(30, 0.2, 30, 0x1f2a36);
+  const floorTex = makeNoiseTexture('#29394a', '#1e2c3d');
+  const wallTex = makeNoiseTexture('#2f4357', '#233142');
+
+  const floor = box(30, 0.2, 30, 0x1f2a36, { map: floorTex, roughness: 0.72 });
   floor.position.y = -0.1;
   floor.receiveShadow = true;
   world.add(floor);
 
-  const ceiling = box(30, 0.3, 30, 0x131a24);
+  const ceiling = box(30, 0.3, 30, 0x131a24, { roughness: 0.9, metalness: 0.15 });
   ceiling.position.y = 4;
   world.add(ceiling);
 
@@ -105,14 +141,14 @@ function makeMap() {
     [0, 1.5, 4, 20, 3, 0.4], [-8, 1.5, -4, 12, 3, 0.4], [7, 1.5, -6, 0.4, 3, 12], [0, 1.5, -12, 16, 3, 0.4]
   ];
   walls.forEach(([x, y, z, w, h, d]) => {
-    const m = box(w, h, d, 0x2f3f50);
+    const m = box(w, h, d, 0x2f3f50, { map: wallTex, roughness: 0.75 });
     m.position.set(x, y, z);
     m.castShadow = true;
     world.add(m);
     colliders.push(new THREE.Box3().setFromObject(m));
   });
 
-  const site = box(4, 0.1, 4, 0x3a5065);
+  const site = box(4, 0.1, 4, 0x3a5065, { emissive: 0x11243b, emissiveIntensity: 0.35, metalness: 0.25 });
   site.position.set(0, 0.05, -10);
   world.add(site);
 
@@ -133,12 +169,40 @@ function makeMap() {
   world.add(glass);
   destructibles.push({ type: 'glass', hp: 25, mesh: glass, bounds: new THREE.Box3().setFromObject(glass), destroyed: false });
 
+
+  const stripGeo = new THREE.BoxGeometry(0.15, 0.06, 3.4);
+  const stripMat = new THREE.MeshStandardMaterial({ color: 0x87d6ff, emissive: 0x2b8ec2, emissiveIntensity: 1.1, roughness: 0.25, metalness: 0.65 });
+  [-8.5, -1, 7].forEach((x, i) => {
+    const strip = new THREE.Mesh(stripGeo, stripMat.clone());
+    strip.position.set(x, 3.45, i === 0 ? -11.5 : 5.6);
+    strip.castShadow = false;
+    world.add(strip);
+  });
+
+  for (let i = 0; i < 16; i++) {
+    const pillar = box(0.35, 2.8, 0.35, 0x203446, { roughness: 0.6, metalness: 0.35 });
+    const edge = i % 4;
+    const offset = -12 + (i % 4) * 8;
+    pillar.position.set(edge < 2 ? offset : (edge === 2 ? -12 : 12), 1.4, edge < 2 ? (edge === 0 ? -12 : 12) : offset);
+    world.add(pillar);
+  }
+
   for (let i = 0; i < 7; i++) {
     const c = box(1.2, 1.3 + Math.random(), 1.2, 0x2c3644);
     c.position.set((Math.random() - 0.5) * 22, 0.65, (Math.random() - 0.5) * 22);
     world.add(c);
     colliders.push(new THREE.Box3().setFromObject(c));
   }
+
+  const accentA = new THREE.PointLight(0x5ec8ff, 0.9, 18, 2);
+  accentA.position.set(-10, 2.8, -8);
+  world.add(accentA);
+  flickerLights.push(accentA);
+
+  const accentB = new THREE.PointLight(0x8dffd2, 0.75, 14, 2);
+  accentB.position.set(6, 2.4, 7);
+  world.add(accentB);
+  flickerLights.push(accentB);
 
   const camPoints = [new THREE.Vector3(-12, 3.3, -11), new THREE.Vector3(12, 3.3, 8), new THREE.Vector3(0, 3.4, 0)];
   camPoints.forEach((p, i) => {
@@ -598,6 +662,11 @@ function tick() {
     bullets.forEach(b => { b.life -= dt; b.vel.y -= dt * 5; b.mesh.position.addScaledVector(b.vel, dt); if (b.life <= 0) b.mesh.visible = false; });
     for (let i = bullets.length - 1; i >= 0; i--) if (bullets[i].life <= 0) bullets.splice(i, 1);
   }
+
+  flickerLights.forEach((l, i) => {
+    l.intensity = 0.65 + Math.sin(performance.now() * 0.003 + i * 2) * 0.16 + Math.random() * 0.05;
+  });
+  if (damageVignette) damageVignette.style.opacity = (0.45 + (1 - Math.max(0, player.hp) / 100) * 0.35).toFixed(2);
 
   updateUI();
   renderer.render(scene, camera);
