@@ -55,7 +55,8 @@ const state = {
   bombPlanted: false,
   bombTimer: 45,
   gameOver: false,
-  objectivePos: new THREE.Vector3(0.2, 0, -11.2)
+  objectivePos: new THREE.Vector3(0.2, 0, -11.2),
+  atkObjectiveKnown: false
 };
 
 const input = { keys: {}, mouseDx: 0, mouseDy: 0, ads: false, fire: false, lean: 0, melee: false };
@@ -181,6 +182,20 @@ const defenderSetupSpots = {
     new THREE.Vector3(2, 0.17, -9),
     new THREE.Vector3(-2.6, 0.17, -11.4)
   ]
+};
+
+const attackerDroneRoutes = [
+  [new THREE.Vector3(-11.2, 0.06, 9.8), new THREE.Vector3(-8.8, 0.06, 2.2), new THREE.Vector3(-6.1, 0.06, -6.4), new THREE.Vector3(-1.4, 0.06, -10.4)],
+  [new THREE.Vector3(7.4, 0.06, 11.8), new THREE.Vector3(8.6, 0.06, 4.2), new THREE.Vector3(5.6, 0.06, -3.2), new THREE.Vector3(1.2, 0.06, -10.8)],
+  [new THREE.Vector3(13.2, 0.06, -4.8), new THREE.Vector3(9.6, 0.06, -8.8), new THREE.Vector3(4.2, 0.06, -10.2), new THREE.Vector3(0.8, 0.06, -11.4)],
+  [new THREE.Vector3(-12.8, 0.06, -2.4), new THREE.Vector3(-7.2, 0.06, -8.6), new THREE.Vector3(-2.8, 0.06, -11.2), new THREE.Vector3(0.4, 0.06, -11.1)]
+];
+
+const defenderHoldPoints = {
+  Anchor: [new THREE.Vector3(-1.5, 1, -11.8), new THREE.Vector3(1.7, 1, -11.1)],
+  Roamer: [new THREE.Vector3(-8.5, 1, -0.5), new THREE.Vector3(7.1, 1, -1.8), new THREE.Vector3(3.2, 1, 6.8)],
+  Intel: [new THREE.Vector3(1.8, 1, -9.4), new THREE.Vector3(-2.2, 1, -9.9)],
+  Denier: [new THREE.Vector3(2.8, 1, -10.4), new THREE.Vector3(-3.2, 1, -10.7)]
 };
 
 function isInsideBuilding(pos) {
@@ -375,7 +390,7 @@ const player = {
 };
 camera.position.copy(player.pos);
 
-function makeBot(team, role, pos) {
+function makeBot(team, role, pos, spawnIndex = 0) {
   const m = box(0.8, 1.8, 0.8, team === 'atk' ? 0x5894ff : 0xff6767);
   m.castShadow = true;
   m.position.copy(pos);
@@ -397,17 +412,23 @@ function makeBot(team, role, pos) {
   return {
     team, role, mesh: m, hp: 100, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
     shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4,
-    setupDone: false
+    setupDone: false, spawnIndex, dronePhase: false, objectiveKnown: false
   };
 }
 
 function spawnTeams() {
+  bots.forEach((bot) => {
+    world.remove(bot.mesh);
+    if (bot.droneMesh) world.remove(bot.droneMesh);
+  });
+  teammateOutlines.forEach((entry) => world.remove(entry.mesh));
   bots.length = 0;
+  teammateOutlines.length = 0;
   const atkRoles = ['Planter', 'Support', 'Fragger', 'Entry'];
   const defRoles = ['Anchor', 'Roamer', 'Intel', 'Denier'];
   for (let i = 0; i < atkRoles.length; i++) {
-    bots.push(makeBot('atk', atkRoles[i], teamSpawns.atk[i].clone()));
-    bots.push(makeBot('def', defRoles[i], teamSpawns.def[i].clone()));
+    bots.push(makeBot('atk', atkRoles[i], teamSpawns.atk[i].clone(), i));
+    bots.push(makeBot('def', defRoles[i], teamSpawns.def[i].clone(), i));
   }
 }
 spawnTeams();
@@ -441,7 +462,7 @@ function updateUI() {
   ui.gadgetB.textContent = `[F] Scout Pulse: ${player.pulseCd <= 0 ? 'Ready' : player.pulseCd.toFixed(1) + 's'}`;
   if (state.phase === 'prep') {
     ui.objective.innerHTML = player.team === 'atk'
-      ? 'Prep Phase: Attackers are locked on drones and must scout from outside to locate Bomb Room.'
+      ? `Prep Phase: Attackers are locked on drones and must scout from outside to locate Bomb Room.${state.atkObjectiveKnown ? ' <span class="ok">Objective found.</span>' : ''}`
       : 'Prep Phase: Defenders barricade, place traps, and fortify the site before action starts.';
   } else if (state.bombPlanted) {
     ui.objective.innerHTML = '<span class="warn">Post-Plant: Defend the Rift Charge detonation.</span>';
@@ -569,6 +590,41 @@ function deployDrone(toggle = true) {
   } else addFeed('Drone feed closed');
 }
 
+function setAttackerObjectiveKnown(source = 'Drones') {
+  if (state.atkObjectiveKnown) return;
+  state.atkObjectiveKnown = true;
+  addFeed(`${source} located Bomb Room`);
+  bots.filter((b) => b.team === 'atk' && !b.dead).forEach((b) => {
+    b.pingTarget = state.objectivePos.clone();
+    b.objectiveKnown = true;
+  });
+}
+
+function beginActionPhase() {
+  state.phase = 'action';
+  state.phaseTime = state.phaseConfig.action;
+  addFeed('Prep complete. Action phase live');
+
+  if (player.team === 'atk') {
+    deployDrone(false);
+    player.camMode = false;
+    const spawn = teamSpawns.atk[Math.floor(Math.random() * teamSpawns.atk.length)].clone();
+    player.pos.copy(spawn).setY(1.7);
+    if (player.droneMesh) player.droneMesh.position.copy(player.pos).add(new THREE.Vector3(0, -1.4, 0));
+  }
+
+  bots.forEach((bot) => {
+    if (bot.dead) return;
+    if (bot.team === 'atk') {
+      const spawn = teamSpawns.atk[bot.spawnIndex % teamSpawns.atk.length].clone();
+      bot.mesh.position.copy(spawn);
+      bot.dronePhase = false;
+      if (bot.droneMesh) bot.droneMesh.visible = false;
+      bot.entryPathIndex = 0;
+    }
+  });
+}
+
 function cycleCams() {
   player.camMode = !player.camMode;
   if (!player.camMode) return;
@@ -611,57 +667,84 @@ spawnDefGadgets();
 function botThink(bot, dt) {
   if (bot.dead) return;
   if (state.phase === 'prep' && !state.bombPlanted) {
-    const prepLane = prepSpots[bot.team][bot.mesh.id % prepSpots[bot.team].length];
-    const drift = prepLane.clone().add(new THREE.Vector3((bot.mesh.id % 2) * 0.7, 0, (bot.mesh.id % 3) * 0.45));
-    const settle = drift.sub(bot.mesh.position);
-    settle.y = 0;
-    if (settle.lengthSq() > 0.08) bot.mesh.position.addScaledVector(settle.normalize(), dt * (bot.team === 'atk' ? 1.6 : 1.2));
-
-    if (bot.team === 'def') {
-      const prepWindow = destructibles.find(d => !d.destroyed && d.type === 'window' && d.mesh.position.distanceTo(bot.mesh.position) < 4.2);
-      if (prepWindow) {
-        prepWindow.hp = Math.min(48, prepWindow.hp + dt * 8);
-        prepWindow.mesh.material.opacity = Math.min(0.75, prepWindow.mesh.material.opacity + dt * 0.12);
+    if (bot.team === 'atk') {
+      const route = attackerDroneRoutes[bot.spawnIndex % attackerDroneRoutes.length];
+      bot.dronePhase = true;
+      bot.mesh.position.copy(teamSpawns.atk[bot.spawnIndex % teamSpawns.atk.length]);
+      if (!bot.droneMesh) {
+        const drone = box(0.26, 0.1, 0.26, 0x8fc9ff);
+        drone.userData.temp = true;
+        drone.position.copy(bot.mesh.position).setY(0.08);
+        world.add(drone);
+        bot.droneMesh = drone;
+        bot.droneRouteIndex = 0;
       }
-
-      const prepDoor = destructibles.find(d => !d.destroyed && d.type === 'door' && d.mesh.position.distanceTo(bot.mesh.position) < 3.2);
-      if (prepDoor) {
-        prepDoor.hp = Math.min(130, prepDoor.hp + dt * 18);
-        prepDoor.mesh.material.color.lerp(new THREE.Color(0x7f5f3f), dt * 0.8);
-      }
-
-      if (!bot.setupDone) {
-        if (bot.role === 'Intel' || bot.role === 'Denier') {
-          const idx = Math.floor(Math.random() * defenderSetupSpots.jammer.length);
-          const point = defenderSetupSpots.jammer[idx];
-          if (!gadgets.some(g => g.type === 'jammer' && g.mesh.position.distanceTo(point) < 0.7)) {
-            const j = box(0.5, 0.35, 0.5, 0xc783ff);
-            j.position.copy(point);
-            j.userData.temp = true;
-            world.add(j);
-            gadgets.push({ type: 'jammer', team: 'def', mesh: j, hp: 35, temp: true });
-            addFeed(`${bot.role} AI deployed jammer`);
-          }
-          bot.setupDone = true;
-        } else if (bot.role === 'Anchor' || bot.role === 'Roamer') {
-          const idx = Math.floor(Math.random() * defenderSetupSpots.tripwire.length);
-          const point = defenderSetupSpots.tripwire[idx];
-          if (!gadgets.some(g => g.type === 'tripwire' && g.mesh.position.distanceTo(point) < 0.7)) {
-            const t = box(0.3, 0.12, 0.3, 0xffb06f);
-            t.position.copy(point);
-            t.userData.temp = true;
-            world.add(t);
-            gadgets.push({ type: 'tripwire', team: 'def', mesh: t, hp: 25, temp: true });
-            addFeed(`${bot.role} AI set a trap`);
-          }
-          bot.setupDone = true;
+      if (bot.droneMesh) {
+        bot.droneMesh.visible = true;
+        const point = route[bot.droneRouteIndex % route.length];
+        const step = point.clone().sub(bot.droneMesh.position);
+        step.y = 0;
+        if (step.lengthSq() > 0.06) {
+          bot.droneMesh.position.addScaledVector(step.normalize(), dt * 2.6);
+        } else {
+          bot.droneRouteIndex = (bot.droneRouteIndex + 1) % route.length;
+        }
+        if (!bot.objectiveKnown && bot.droneMesh.position.distanceTo(state.objectivePos) < 2.6) {
+          bot.objectiveKnown = true;
+          setAttackerObjectiveKnown(`${bot.role} drone`);
         }
       }
+      bot.shootTimer = 0;
+      bot.alert = Math.max(0, bot.alert - dt);
+      return;
     }
 
-    if (bot.team === 'atk' && isInsideBuilding(bot.mesh.position)) {
-      bot.mesh.position.addScaledVector(bot.mesh.position.clone().setY(0).normalize(), dt * 1.8);
+    const prepLane = prepSpots.def[bot.spawnIndex % prepSpots.def.length];
+    const drift = prepLane.clone().add(new THREE.Vector3((bot.spawnIndex % 2) * 0.7, 0, (bot.spawnIndex % 3) * 0.45));
+    const settle = drift.sub(bot.mesh.position);
+    settle.y = 0;
+    if (settle.lengthSq() > 0.08) bot.mesh.position.addScaledVector(settle.normalize(), dt * 1.25);
+
+    const prepWindow = destructibles.find(d => !d.destroyed && d.type === 'window' && d.mesh.position.distanceTo(bot.mesh.position) < 4.2);
+    if (prepWindow) {
+      prepWindow.hp = Math.min(58, prepWindow.hp + dt * 10);
+      prepWindow.mesh.material.opacity = Math.min(0.82, prepWindow.mesh.material.opacity + dt * 0.14);
     }
+
+    const prepDoor = destructibles.find(d => !d.destroyed && d.type === 'door' && d.mesh.position.distanceTo(bot.mesh.position) < 3.2);
+    if (prepDoor) {
+      prepDoor.hp = Math.min(150, prepDoor.hp + dt * 20);
+      prepDoor.mesh.material.color.lerp(new THREE.Color(0x7f5f3f), dt * 0.85);
+    }
+
+    if (!bot.setupDone) {
+      if (bot.role === 'Intel' || bot.role === 'Denier') {
+        const idx = (bot.spawnIndex + Math.floor(performance.now() * 0.001)) % defenderSetupSpots.jammer.length;
+        const point = defenderSetupSpots.jammer[idx];
+        if (!gadgets.some(g => g.type === 'jammer' && g.mesh.position.distanceTo(point) < 0.7)) {
+          const j = box(0.5, 0.35, 0.5, 0xc783ff);
+          j.position.copy(point);
+          j.userData.temp = true;
+          world.add(j);
+          gadgets.push({ type: 'jammer', team: 'def', mesh: j, hp: 35, temp: true });
+          addFeed(`${bot.role} AI deployed jammer`);
+        }
+        bot.setupDone = true;
+      } else if (bot.role === 'Anchor' || bot.role === 'Roamer') {
+        const idx = (bot.spawnIndex + Math.floor(performance.now() * 0.001)) % defenderSetupSpots.tripwire.length;
+        const point = defenderSetupSpots.tripwire[idx];
+        if (!gadgets.some(g => g.type === 'tripwire' && g.mesh.position.distanceTo(point) < 0.7)) {
+          const t = box(0.3, 0.12, 0.3, 0xffb06f);
+          t.position.copy(point);
+          t.userData.temp = true;
+          world.add(t);
+          gadgets.push({ type: 'tripwire', team: 'def', mesh: t, hp: 25, temp: true });
+          addFeed(`${bot.role} AI set a trap`);
+        }
+        bot.setupDone = true;
+      }
+    }
+
     bot.shootTimer = 0;
     bot.alert = Math.max(0, bot.alert - dt);
     return;
@@ -698,10 +781,14 @@ function botThink(bot, dt) {
     }
   }
 
-  if (bot.team === 'def' && bot.role === 'Anchor') target = state.objectivePos.clone().add(new THREE.Vector3(Math.sin(performance.now() * 0.001) * 1.5, 0, 1));
-  else if (bot.team === 'def' && bot.role === 'Roamer') target = navNodes[(Math.floor(performance.now() * 0.001 + bot.mesh.id) % navNodes.length)];
-  else if (bot.team === 'def' && bot.role === 'Denier') target = state.objectivePos.clone().add(new THREE.Vector3(2.8, 0, -0.4));
-  else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget && !attackWindows.length) target = bot.pingTarget;
+  if (bot.team === 'def' && defenderHoldPoints[bot.role]) {
+    const hold = defenderHoldPoints[bot.role];
+    target = hold[Math.floor((performance.now() * 0.001 + bot.spawnIndex) % hold.length)].clone();
+  } else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget && !attackWindows.length) target = bot.pingTarget;
+  if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter') {
+    const offset = new THREE.Vector3((bot.spawnIndex - 1.5) * 0.8, 0, 1 + (bot.spawnIndex % 2) * 1.1);
+    target = state.objectivePos.clone().add(offset);
+  }
   if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
 
   const move = target.clone().sub(myPos); move.y = 0;
@@ -770,9 +857,11 @@ function endRound(winner) {
 function resetRound() {
   state.phase = 'prep';
   state.phaseTime = state.phaseConfig.prep;
+  state.atkObjectiveKnown = false;
   state.bombPlanted = false;
   state.bombTimer = state.phaseConfig.postPlant;
   player.hp = 100; player.alive = true; player.pos.copy(teamSpawns[player.team][0]).setY(1.7); player.ammo = 30; player.breachCharges = 2;
+  deployDrone(false);
   camera.position.copy(player.pos);
   destructibles.forEach(d => {
     d.destroyed = false;
@@ -840,13 +929,16 @@ function updatePlayer(dt) {
 
   if (player.droneActive && player.droneMesh) {
     const v = new THREE.Vector3((input.keys['KeyD'] ? 1 : 0) - (input.keys['KeyA'] ? 1 : 0), 0, (input.keys['KeyS'] ? 1 : 0) - (input.keys['KeyW'] ? 1 : 0));
+    let lookDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
     if (v.lengthSq()) {
       v.normalize().applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
+      lookDir = v;
       const next = player.droneMesh.position.clone().addScaledVector(v, dt * 2.2);
       if (!jammersAffect(next, 'atk')) player.droneMesh.position.copy(next);
-      camera.position.copy(player.droneMesh.position.clone().add(new THREE.Vector3(0, 0.45, 0)));
-      camera.lookAt(player.droneMesh.position.clone().add(v));
     }
+    camera.position.copy(player.droneMesh.position.clone().add(new THREE.Vector3(0, 0.45, 0)));
+    camera.lookAt(player.droneMesh.position.clone().add(lookDir));
+    if (!state.atkObjectiveKnown && player.droneMesh.position.distanceTo(state.objectivePos) < 2.5) setAttackerObjectiveKnown('Player drone');
     if (input.keys['KeyC']) addPing(player.droneMesh.position.clone(), 'atk');
     return;
   }
@@ -947,9 +1039,7 @@ function tick() {
     if (!state.bombPlanted) state.phaseTime -= dt;
     else state.bombTimer -= dt;
     if (state.phase === 'prep' && state.phaseTime <= 0) {
-      state.phase = 'action';
-      state.phaseTime = state.phaseConfig.action;
-      addFeed('Action phase live');
+      beginActionPhase();
     }
     if (state.phase === 'action' && !state.bombPlanted && state.phaseTime <= 0) endRound('def');
     if (state.bombPlanted && state.bombTimer <= 0) endRound('atk');
