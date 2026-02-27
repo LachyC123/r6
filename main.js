@@ -75,6 +75,7 @@ const bullets = [];
 const trails = [];
 const teammateOutlines = [];
 const visionOccluders = [];
+const doorways = [];
 let objectiveIntelMesh;
 let objectiveIntelPulse;
 
@@ -218,7 +219,7 @@ function findSafeGroundPosition(origin, opts = {}) {
       : new THREE.Vector3((Math.random() - 0.5) * radius * 2, 0, (Math.random() - 0.5) * radius * 2);
     candidate.copy(origin).add(offset).setY(1);
     const probe = new THREE.Box3().setFromCenterAndSize(candidate, new THREE.Vector3(0.8, 1.8, 0.8));
-    const blocked = colliders.some(c => c.intersectsBox(probe)) || destructibles.some(d => !d.destroyed && d.bounds.intersectsBox(probe));
+    const blocked = isBlockedProbe(probe);
     if (blocked) continue;
     if (outsideOnly && isInsideBuilding(candidate)) continue;
     return candidate.clone();
@@ -309,6 +310,22 @@ function addStaticCollider(mesh) {
   visionOccluders.push(mesh);
 }
 
+function addDoorway(center, size) {
+  doorways.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(...center), new THREE.Vector3(...size)));
+}
+
+function isBlockedProbe(probe) {
+  const inDoorway = doorways.some((doorway) => doorway.intersectsBox(probe));
+  return colliders.some((c) => c.intersectsBox(probe) && !inDoorway)
+    || destructibles.some((d) => !d.destroyed && d.bounds.intersectsBox(probe));
+}
+
+function isBlockedPoint(point) {
+  const inDoorway = doorways.some((doorway) => doorway.containsPoint(point));
+  return colliders.some((c) => c.containsPoint(point) && !inDoorway)
+    || destructibles.some((d) => !d.destroyed && d.bounds.containsPoint(point));
+}
+
 function makeMap() {
   const floorTex = makeNoiseTexture('#303945', '#232b36');
   const wallTex = makeNoiseTexture('#5f6e80', '#3b4654');
@@ -329,9 +346,12 @@ function makeMap() {
     [-11, 1.5, -15, 8, 3, 0.4], [-0.6, 1.5, -15, 10.8, 3, 0.4], [10.8, 1.5, -15, 8.4, 3, 0.4],
     [15, 1.5, 9.2, 0.4, 3, 11.2], [15, 1.5, -2.6, 0.4, 3, 9.2], [15, 1.5, -14, 0.4, 3, 1.8],
     [-15, 1.5, 9.2, 0.4, 3, 11.2], [-15, 1.5, -5.8, 0.4, 3, 16.2],
-    [0, 1.5, 9.6, 21, 3, 0.4], [-11.2, 1.5, 5.6, 7.2, 3, 0.4], [7.5, 1.5, 6.4, 15, 3, 0.4],
-    [-7.2, 1.5, 0, 0.4, 3, 19], [6.6, 1.5, 0, 0.4, 3, 16], [0, 1.5, -3.8, 10, 3, 0.4],
-    [0, 1.5, -9.7, 17, 3, 0.4], [-3.8, 1.5, -7.1, 0.4, 3, 5.6], [4.8, 1.5, -12, 0.4, 3, 6],
+    [-7.4, 1.5, 9.6, 6.2, 3, 0.4], [0.6, 1.5, 9.6, 7.2, 3, 0.4], [9.1, 1.5, 9.6, 4.8, 3, 0.4],
+    [-11.2, 1.5, 5.6, 7.2, 3, 0.4], [7.5, 1.5, 6.4, 15, 3, 0.4],
+    [-7.2, 1.5, 6.8, 0.4, 3, 5.8], [-7.2, 1.5, -1.4, 0.4, 3, 6.8], [-7.2, 1.5, -8.8, 0.4, 3, 5.6],
+    [6.6, 1.5, 5.9, 0.4, 3, 5.4], [6.6, 1.5, -1.8, 0.4, 3, 5.8], [6.6, 1.5, -8.6, 0.4, 3, 5.6],
+    [0, 1.5, -3.8, 10, 3, 0.4], [-5, 1.5, -9.7, 6.6, 3, 0.4], [5.2, 1.5, -9.7, 6.2, 3, 0.4],
+    [-3.8, 1.5, -7.1, 0.4, 3, 5.6], [4.8, 1.5, -12, 0.4, 3, 6],
     [10.5, 1.5, -2, 9, 3, 0.4], [-11.3, 1.5, -1.8, 7.4, 3, 0.4]
   ];
   walls.forEach(([x, y, z, w, h, d]) => {
@@ -341,6 +361,17 @@ function makeMap() {
     world.add(m);
     addStaticCollider(m);
   });
+
+
+  [
+    { center: [-3.3, 1, 9.6], size: [1.8, 2.2, 1.2] },
+    { center: [4.8, 1, 9.6], size: [1.8, 2.2, 1.2] },
+    { center: [-7.2, 1, 2.8], size: [1.2, 2.2, 1.8] },
+    { center: [-7.2, 1, -5.2], size: [1.2, 2.2, 1.8] },
+    { center: [6.6, 1, 2.1], size: [1.2, 2.2, 1.8] },
+    { center: [6.6, 1, -5.3], size: [1.2, 2.2, 1.8] },
+    { center: [0.1, 1, -9.7], size: [2, 2.2, 1.2] }
+  ].forEach(({ center, size }) => addDoorway(center, size));
 
   const bombRoomFloor = box(7.4, 0.12, 7.4, 0x3f5672, { emissive: 0x153052, emissiveIntensity: 0.42, metalness: 0.28, roughness: 0.44 });
   bombRoomFloor.position.set(0.2, 0.03, -11.2);
@@ -442,10 +473,18 @@ function makeMap() {
   const doorSpots = [
     { pos: [-7.1, 1.2, -3.8], rot: 0 },
     { pos: [5.7, 1.2, -14.75], rot: Math.PI / 2 },
-    { pos: [-15, 1.2, 3], rot: Math.PI / 2 }
+    { pos: [-15, 1.2, 3], rot: Math.PI / 2 },
+    { pos: [-3.3, 1.2, 9.6], rot: Math.PI / 2 },
+    { pos: [4.8, 1.2, 9.6], rot: Math.PI / 2 },
+    { pos: [0.1, 1.2, -9.7], rot: Math.PI / 2 }
   ];
   doorSpots.forEach((spot) => {
-    const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8 });
+    const frame = box(1.6, 2.6, 0.28, 0x273242, { roughness: 0.62, metalness: 0.45 });
+    frame.position.set(...spot.pos);
+    frame.rotation.y = spot.rot;
+    world.add(frame);
+
+    const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8, emissive: 0x1f1610, emissiveIntensity: 0.2 });
     door.position.set(...spot.pos);
     door.rotation.y = spot.rot;
     world.add(door);
@@ -609,10 +648,11 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   weapon.gunRoot.position.set(0, 0.22, -0.36);
   m.add(weapon.gunRoot);
   return {
-    team, role, mesh: m, hp: 100, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
+    team, role, mesh: m, hp: 100, armor: team === 'def' ? 20 : 10, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
     shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4,
     setupDone: false, spawnIndex, dronePhase: false, objectiveKnown: false, gunMesh: weapon.gunRoot, gunMuzzle: weapon.muzzle,
-    strafeDir: Math.random() > 0.5 ? 1 : -1, strafeTimer: 0.5 + Math.random() * 0.8
+    strafeDir: Math.random() > 0.5 ? 1 : -1, strafeTimer: 0.5 + Math.random() * 0.8,
+    aggression: 0.75 + Math.random() * 0.45, discipline: 0.65 + Math.random() * 0.3, crouchBias: Math.random(), inCover: false
   };
 }
 
@@ -690,7 +730,9 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
     if (hitBot && nearest.object === hitBot.object) {
       const b = bots.find(x => x.mesh === hitBot.object);
       const headshot = p.y > b.mesh.position.y + 1.15;
-      b.hp -= damage * (headshot ? 2 : 1);
+      const armorMitigation = headshot ? 0 : Math.min(0.45, (b.armor || 0) / 100);
+      b.hp -= damage * (headshot ? 2 : 1) * (1 - armorMitigation);
+      if (!headshot && b.armor) b.armor = Math.max(0, b.armor - damage * 0.45);
       if (b.hp <= 0) {
         b.dead = true; b.mesh.visible = false;
         addFeed(`${shooter === player ? 'You' : shooter.role} eliminated ${b.role}`);
@@ -894,7 +936,7 @@ function getBotNavigationTarget(origin, desired) {
   if (hasLineOfSight(eyeOrigin, eyeDesired)) return desired.clone();
 
   const viableNodes = navNodes.filter((node) => {
-    if (colliders.some((c) => c.containsPoint(node))) return false;
+    if (isBlockedPoint(node)) return false;
     return hasLineOfSight(eyeOrigin, node.clone().setY(1.2));
   });
   if (!viableNodes.length) return desired.clone();
@@ -999,11 +1041,17 @@ function botThink(bot, dt) {
   bot.gadgetCd -= dt;
   const enemy = bot.team === 'atk' ? [...bots.filter(b => b.team === 'def' && !b.dead), ...(player.team === 'def' && player.alive ? [player] : [])] : [...bots.filter(b => b.team === 'atk' && !b.dead), ...(player.team === 'atk' && player.alive ? [player] : [])];
   const myPos = bot.mesh.position;
-  const visible = enemy.find((e) => {
+  const visibleCandidates = enemy.filter((e) => {
     const targetPos = (e.mesh ? e.mesh.position : e.pos).clone().setY(1.2);
-    return targetPos.distanceTo(myPos) < 10.5 && hasLineOfSight(myPos.clone().setY(1.2), targetPos);
+    return targetPos.distanceTo(myPos) < 11.8 && hasLineOfSight(myPos.clone().setY(1.2), targetPos);
   });
-  if (visible) { bot.alert = 2.5; bot.pingTarget = (visible.mesh ? visible.mesh.position : visible.pos).clone(); }
+  visibleCandidates.sort((a, b) => (a.mesh ? a.mesh.position : a.pos).distanceTo(myPos) - (b.mesh ? b.mesh.position : b.pos).distanceTo(myPos));
+  const visible = visibleCandidates[0];
+  if (visible) {
+    bot.alert = 2.5;
+    bot.pingTarget = (visible.mesh ? visible.mesh.position : visible.pos).clone();
+    bot.lastHeard = bot.pingTarget.clone();
+  }
   bot.alert -= dt;
 
   if (bot.hp < 30) bot.retreat = true;
@@ -1059,15 +1107,16 @@ function botThink(bot, dt) {
   const move = navTarget.clone().sub(myPos); move.y = 0;
   if (move.length() > 0.35) {
     move.normalize();
-    const step = move.clone().multiplyScalar((bot.team === 'atk' ? 2.6 : 2.3) * dt);
+    const moveSpeed = (bot.team === 'atk' ? 2.7 : 2.35) * (bot.inCover ? 0.86 : 1) * (bot.retreat ? 1.05 : 1);
+    const step = move.clone().multiplyScalar(moveSpeed * dt);
     const next = myPos.clone().add(step);
-    const blockedNext = colliders.some(c => c.containsPoint(next)) || destructibles.some((d) => !d.destroyed && d.bounds.containsPoint(next));
+    const blockedNext = isBlockedPoint(next);
     if (!blockedNext) {
       myPos.copy(next);
     } else {
       const sidestep = new THREE.Vector3(-move.z, 0, move.x).multiplyScalar(step.length() * 0.8 * bot.strafeDir);
       const alt = myPos.clone().add(sidestep);
-      const blockedAlt = colliders.some(c => c.containsPoint(alt)) || destructibles.some((d) => !d.destroyed && d.bounds.containsPoint(alt));
+      const blockedAlt = isBlockedPoint(alt);
       if (!blockedAlt) myPos.copy(alt);
       else bot.strafeDir *= -1;
     }
@@ -1085,21 +1134,27 @@ function botThink(bot, dt) {
       face.normalize();
       const side = new THREE.Vector3(-face.z, 0, face.x).multiplyScalar(bot.strafeDir * dt * 1.1);
       const probe = myPos.clone().add(side);
-      if (!colliders.some(c => c.containsPoint(probe)) && !destructibles.some((d) => !d.destroyed && d.bounds.containsPoint(probe))) myPos.add(side);
+      if (!isBlockedPoint(probe)) myPos.add(side);
       if (bot.gunMesh) bot.gunMesh.lookAt((visible.mesh ? visible.mesh.position : visible.pos).clone().setY(1.25));
     }
   } else if (bot.gunMesh) {
     bot.gunMesh.rotation.set(0, 0, 0);
   }
 
-  if (visible && Math.random() > bot.reaction) {
+  bot.inCover = !!(target && target !== state.objectivePos && target.distanceTo(myPos) < 1.8);
+  const botAccuracy = 0.028 - Math.min(0.012, bot.discipline * 0.01) + (bot.inCover ? -0.004 : 0.005);
+  bot.mesh.scale.y = THREE.MathUtils.lerp(bot.mesh.scale.y, visible && bot.crouchBias + bot.discipline > 1.05 ? 0.88 : 1, dt * 7);
+
+  if (visible && Math.random() > bot.reaction * (1.18 - bot.aggression * 0.2)) {
     bot.shootTimer -= dt;
     if (bot.shootTimer <= 0) {
       const tPos = visible.mesh ? visible.mesh.position.clone().setY(1.2) : visible.pos.clone();
-      shoot(bot, tPos.sub(myPos).normalize(), 22, 0.045);
-      bot.shootTimer = 0.18 + Math.random() * 0.35;
+      const fireDir = tPos.sub(myPos).normalize();
+      shoot(bot, fireDir, 20 + bot.aggression * 4, botAccuracy);
+      bot.shootTimer = 0.16 + Math.random() * (0.32 - bot.discipline * 0.08);
       if (visible === player) {
-        player.hp -= 15 + Math.random() * 10;
+        const armorMitigation = player.crouch ? 0.18 : 0.1;
+        player.hp -= (13 + Math.random() * 9) * (1 - armorMitigation);
         shakeT = 0.12;
         if (player.hp <= 0 && player.alive) { player.alive = false; addFeed('You were neutralized'); }
       }
@@ -1263,7 +1318,7 @@ function updatePlayer(dt) {
     move.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
     const next = player.pos.clone().addScaledVector(move, speed * dt);
     const probe = new THREE.Box3().setFromCenterAndSize(next.clone().setY(1), new THREE.Vector3(0.7, 1.8, 0.7));
-    if (!colliders.some(c => c.intersectsBox(probe)) && !destructibles.some(d => !d.destroyed && d.bounds.intersectsBox(probe))) {
+    if (!isBlockedProbe(probe)) {
       player.pos.copy(next);
       footTimer -= dt;
       if (footTimer <= 0) {
