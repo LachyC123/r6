@@ -42,6 +42,7 @@ scene.add(keyLight);
 const state = {
   phase: 'prep',
   phaseTime: 45,
+  phaseConfig: { prep: 45, action: 165, postPlant: 45 },
   round: 1,
   maxRounds: 3,
   score: { atk: 0, def: 0 },
@@ -124,62 +125,75 @@ function box(w, h, d, c, opts = {}) {
 }
 
 function makeMap() {
-  const floorTex = makeNoiseTexture('#29394a', '#1e2c3d');
-  const wallTex = makeNoiseTexture('#2f4357', '#233142');
+  const floorTex = makeNoiseTexture('#2f3743', '#252e38');
+  const wallTex = makeNoiseTexture('#556475', '#394756');
+  const concreteTex = makeNoiseTexture('#3b434f', '#2f3641');
+  const trimTex = makeNoiseTexture('#2c3542', '#202734');
 
-  const floor = box(30, 0.2, 30, 0x1f2a36, { map: floorTex, roughness: 0.72 });
+  const floor = box(30, 0.2, 30, 0x2a3441, { map: floorTex, roughness: 0.68, metalness: 0.18 });
   floor.position.y = -0.1;
   floor.receiveShadow = true;
   world.add(floor);
 
-  const ceiling = box(30, 0.3, 30, 0x131a24, { roughness: 0.9, metalness: 0.15 });
+  const ceiling = box(30, 0.3, 30, 0x1b212b, { map: trimTex, roughness: 0.86, metalness: 0.24 });
   ceiling.position.y = 4;
   world.add(ceiling);
 
+  const perimeter = box(29.4, 0.1, 29.4, 0x111722, { roughness: 0.9 });
+  perimeter.position.set(0, 0.005, 0);
+  world.add(perimeter);
+
   const walls = [
     [0, 1.5, 15, 30, 3, 0.4], [0, 1.5, -15, 30, 3, 0.4], [15, 1.5, 0, 0.4, 3, 30], [-15, 1.5, 0, 0.4, 3, 30],
-    [0, 1.5, 4, 20, 3, 0.4], [-8, 1.5, -4, 12, 3, 0.4], [7, 1.5, -6, 0.4, 3, 12], [0, 1.5, -12, 16, 3, 0.4]
+    [0, 1.5, 9.2, 19, 3, 0.4], [0, 1.5, -9.2, 18, 3, 0.4],
+    [-6.4, 1.5, 2.6, 0.4, 3, 13.4], [6.4, 1.5, -2.6, 0.4, 3, 13.4],
+    [-2.8, 1.5, 0.2, 6.4, 3, 0.4], [3.2, 1.5, -0.2, 6.6, 3, 0.4],
+    [-11, 1.5, -3.8, 8, 3, 0.4], [11, 1.5, 3.8, 8, 3, 0.4]
   ];
   walls.forEach(([x, y, z, w, h, d]) => {
-    const m = box(w, h, d, 0x2f3f50, { map: wallTex, roughness: 0.75 });
+    const m = box(w, h, d, 0x4a5b6e, { map: wallTex, roughness: 0.74, metalness: 0.12 });
     m.position.set(x, y, z);
     m.castShadow = true;
     world.add(m);
     colliders.push(new THREE.Box3().setFromObject(m));
   });
 
-  const site = box(4, 0.1, 4, 0x3a5065, { emissive: 0x11243b, emissiveIntensity: 0.35, metalness: 0.25 });
+  const site = box(4.6, 0.12, 4.6, 0x465a72, { emissive: 0x10243d, emissiveIntensity: 0.5, metalness: 0.35, roughness: 0.38 });
   site.position.set(0, 0.05, -10);
   world.add(site);
 
-  const weakWall = box(0.4, 2.4, 3.2, 0x6a5b45);
-  weakWall.position.set(3.4, 1.2, -4);
+  const siteRing = box(5.5, 0.04, 5.5, 0x162232, { emissive: 0x2f9fff, emissiveIntensity: 0.28 });
+  siteRing.position.set(0, 0.08, -10);
+  world.add(siteRing);
+
+  const weakWall = box(0.4, 2.4, 3.6, 0x75644f, { map: concreteTex, roughness: 0.92 });
+  weakWall.position.set(5.7, 1.2, -5.6);
   world.add(weakWall);
   destructibles.push({ type: 'wall', hp: 70, mesh: weakWall, bounds: new THREE.Box3().setFromObject(weakWall), destroyed: false });
 
-  const door = box(1.2, 2.4, 0.2, 0x614d39);
-  door.position.set(-1.5, 1.2, 4);
+  const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8 });
+  door.position.set(-5.9, 1.2, 3.3);
   world.add(door);
   destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
 
-  const glass = box(2.8, 1.4, 0.1, 0x77a6c8);
+  const glass = box(3.2, 1.5, 0.1, 0x7ba9d2);
   glass.material.transparent = true;
   glass.material.opacity = 0.5;
-  glass.position.set(11, 1.4, -4);
+  glass.position.set(10.8, 1.45, -3.2);
   world.add(glass);
   destructibles.push({ type: 'glass', hp: 25, mesh: glass, bounds: new THREE.Box3().setFromObject(glass), destroyed: false });
 
 
   const stripGeo = new THREE.BoxGeometry(0.15, 0.06, 3.4);
   const stripMat = new THREE.MeshStandardMaterial({ color: 0x87d6ff, emissive: 0x2b8ec2, emissiveIntensity: 1.1, roughness: 0.25, metalness: 0.65 });
-  [-8.5, -1, 7].forEach((x, i) => {
+  [-10.5, -2, 8.4].forEach((x, i) => {
     const strip = new THREE.Mesh(stripGeo, stripMat.clone());
-    strip.position.set(x, 3.45, i === 0 ? -11.5 : 5.6);
+    strip.position.set(x, 3.45, i === 0 ? -11.5 : 7.8);
     strip.castShadow = false;
     world.add(strip);
   });
 
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 20; i++) {
     const pillar = box(0.35, 2.8, 0.35, 0x203446, { roughness: 0.6, metalness: 0.35 });
     const edge = i % 4;
     const offset = -12 + (i % 4) * 8;
@@ -187,19 +201,44 @@ function makeMap() {
     world.add(pillar);
   }
 
-  for (let i = 0; i < 7; i++) {
-    const c = box(1.2, 1.3 + Math.random(), 1.2, 0x2c3644);
-    c.position.set((Math.random() - 0.5) * 22, 0.65, (Math.random() - 0.5) * 22);
+  const coverSpots = [
+    [-9.4, 0.65, 10.4], [-5.2, 0.65, 10.1], [8.8, 0.65, -10.2], [4.6, 0.65, -10.5],
+    [-10.8, 0.65, 4.2], [10.8, 0.65, -4.2], [-1.4, 0.65, 6.1], [1.7, 0.65, -6.3],
+    [-8.4, 0.65, -1.2], [8.2, 0.65, 1.3]
+  ];
+  coverSpots.forEach(([x, y, z], i) => {
+    const c = box(1.2, 1.2 + (i % 3) * 0.35, 1.2, 0x2f3a49, { map: concreteTex, roughness: 0.82 });
+    c.position.set(x, y, z);
     world.add(c);
     colliders.push(new THREE.Box3().setFromObject(c));
-  }
+  });
 
-  const accentA = new THREE.PointLight(0x5ec8ff, 0.9, 18, 2);
+  const serverStack = box(3.5, 2.4, 1.5, 0x222c3a, { map: trimTex, roughness: 0.55, metalness: 0.5 });
+  serverStack.position.set(0, 1.2, -1.8);
+  world.add(serverStack);
+  colliders.push(new THREE.Box3().setFromObject(serverStack));
+
+  const catwalk = box(6.8, 0.18, 1.8, 0x314152, { roughness: 0.45, metalness: 0.55 });
+  catwalk.position.set(0, 2.7, -9.2);
+  world.add(catwalk);
+
+  const bombLights = [
+    new THREE.PointLight(0xff4f4f, 0.7, 10, 2),
+    new THREE.PointLight(0x4f8dff, 0.55, 10, 2)
+  ];
+  bombLights[0].position.set(-1.7, 1.1, -10);
+  bombLights[1].position.set(1.7, 1.1, -10);
+  bombLights.forEach((l) => {
+    world.add(l);
+    flickerLights.push(l);
+  });
+
+  const accentA = new THREE.PointLight(0x5ec8ff, 1.1, 20, 2);
   accentA.position.set(-10, 2.8, -8);
   world.add(accentA);
   flickerLights.push(accentA);
 
-  const accentB = new THREE.PointLight(0x8dffd2, 0.75, 14, 2);
+  const accentB = new THREE.PointLight(0x8dffd2, 0.9, 18, 2);
   accentB.position.set(6, 2.4, 7);
   world.add(accentB);
   flickerLights.push(accentB);
@@ -236,8 +275,8 @@ function spawnTeams() {
   const atkRoles = ['Planter', 'Support', 'Fragger'];
   const defRoles = ['Anchor', 'Roamer', 'Intel'];
   for (let i = 0; i < 3; i++) {
-    bots.push(makeBot('atk', atkRoles[i], new THREE.Vector3(-13 + i * 1.5, 1, 13 - i)));
-    bots.push(makeBot('def', defRoles[i], new THREE.Vector3(11 - i * 1.8, 1, -11 + i * 1.2)));
+    bots.push(makeBot('atk', atkRoles[i], new THREE.Vector3(-12.5 + i * 1.8, 1, 11.6 - i * 0.7)));
+    bots.push(makeBot('def', defRoles[i], new THREE.Vector3(10.8 - i * 1.6, 1, -10.8 + i * 1.1)));
   }
 }
 spawnTeams();
@@ -253,6 +292,13 @@ function updateUI() {
   ui.stance.textContent = player.crouch ? 'CROUCH' : (player.sprint ? 'SPRINT' : 'STAND');
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
   ui.gadgetB.textContent = `[F] Scout Pulse: ${player.pulseCd <= 0 ? 'Ready' : player.pulseCd.toFixed(1) + 's'}`;
+  if (state.phase === 'prep') {
+    ui.objective.innerHTML = 'Prep Phase: Drone and set entries before assault begins.';
+  } else if (state.bombPlanted) {
+    ui.objective.innerHTML = '<span class="warn">Post-Plant: Defend the Rift Charge detonation.</span>';
+  } else {
+    ui.objective.innerHTML = 'Action Phase: Clear defenders and plant at Vault Nexus.';
+  }
 }
 
 function shoot(shooter, dir, damage = 34, spread = 0.02) {
@@ -370,7 +416,7 @@ function plantOrDefuse(dt) {
   if (player.team === 'atk' && state.phase === 'action' && !state.bombPlanted && input.keys['KeyX']) {
     player.plantProg = (player.plantProg || 0) + dt;
     if (player.plantProg > 3) {
-      state.bombPlanted = true; state.bombTimer = 38; player.plantProg = 0;
+      state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant; player.plantProg = 0;
       addFeed('Rift Charge planted'); beep(70, 0.2, 'square', 0.08);
     }
   }
@@ -394,10 +440,21 @@ spawnDefGadgets();
 
 function botThink(bot, dt) {
   if (bot.dead) return;
+  if (state.phase === 'prep' && !state.bombPlanted) {
+    const prepHold = bot.team === 'atk' ? new THREE.Vector3(-11.5, 1, 10.5) : new THREE.Vector3(10.5, 1, -10.5);
+    const drift = prepHold.clone().add(new THREE.Vector3((bot.mesh.id % 3) * 1.1, 0, (bot.mesh.id % 2) * 0.8));
+    const settle = drift.sub(bot.mesh.position);
+    settle.y = 0;
+    if (settle.lengthSq() > 0.08) bot.mesh.position.addScaledVector(settle.normalize(), dt * 1.25);
+    bot.shootTimer = 0;
+    bot.alert = Math.max(0, bot.alert - dt);
+    return;
+  }
+
   bot.gadgetCd -= dt;
   const enemy = bot.team === 'atk' ? [...bots.filter(b => b.team === 'def' && !b.dead), ...(player.team === 'def' && player.alive ? [player] : [])] : [...bots.filter(b => b.team === 'atk' && !b.dead), ...(player.team === 'atk' && player.alive ? [player] : [])];
   const myPos = bot.mesh.position;
-  const visible = enemy.find(e => (e.mesh ? e.mesh.position : e.pos).distanceTo(myPos) < 11);
+  const visible = enemy.find(e => (e.mesh ? e.mesh.position : e.pos).distanceTo(myPos) < 9);
   if (visible) { bot.alert = 2.5; bot.pingTarget = (visible.mesh ? visible.mesh.position : visible.pos).clone(); }
   bot.alert -= dt;
 
@@ -439,7 +496,7 @@ function botThink(bot, dt) {
   if (bot.team === 'atk' && bot.role === 'Planter' && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 1.8) {
     bot.plant = (bot.plant || 0) + dt;
     if (bot.plant > 3) {
-      state.bombPlanted = true; state.bombTimer = 38;
+      state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant;
       addFeed('Enemy planter armed Rift Charge');
     }
   }
@@ -479,7 +536,10 @@ function endRound(winner) {
 }
 
 function resetRound() {
-  state.phase = 'prep'; state.phaseTime = 45; state.bombPlanted = false; state.bombTimer = 45;
+  state.phase = 'prep';
+  state.phaseTime = state.phaseConfig.prep;
+  state.bombPlanted = false;
+  state.bombTimer = state.phaseConfig.postPlant;
   player.hp = 100; player.alive = true; player.pos.set(-12, 1.7, 12); player.ammo = 30; player.breachCharges = 2;
   camera.position.copy(player.pos);
   destructibles.forEach(d => { d.destroyed = false; d.mesh.visible = true; d.mesh.material.opacity = d.type === 'glass' ? 0.5 : 1; d.hp = d.type === 'glass' ? 25 : (d.type === 'door' ? 80 : 70); });
@@ -616,13 +676,19 @@ function tick() {
   if (!state.gameOver) {
     if (!state.bombPlanted) state.phaseTime -= dt;
     else state.bombTimer -= dt;
-    if (state.phase === 'prep' && state.phaseTime <= 0) { state.phase = 'action'; state.phaseTime = 130; addFeed('Action phase live'); }
+    if (state.phase === 'prep' && state.phaseTime <= 0) {
+      state.phase = 'action';
+      state.phaseTime = state.phaseConfig.action;
+      addFeed('Action phase live');
+    }
     if (state.phase === 'action' && !state.bombPlanted && state.phaseTime <= 0) endRound('def');
     if (state.bombPlanted && state.bombTimer <= 0) endRound('atk');
 
-    if (bots.filter(b => !b.dead && b.team === 'atk').length === 0 && player.team === 'atk') endRound('def');
-    if (bots.filter(b => !b.dead && b.team === 'def').length === 0 && player.team === 'atk') endRound('atk');
-    if (!player.alive && player.team === 'atk' && bots.filter(b => !b.dead && b.team === 'atk').length === 0) endRound('def');
+    if (state.phase === 'action' || state.bombPlanted) {
+      if (bots.filter(b => !b.dead && b.team === 'atk').length === 0 && player.team === 'atk') endRound('def');
+      if (bots.filter(b => !b.dead && b.team === 'def').length === 0 && player.team === 'atk') endRound('atk');
+      if (!player.alive && player.team === 'atk' && bots.filter(b => !b.dead && b.team === 'atk').length === 0) endRound('def');
+    }
 
     player.pulseCd -= dt;
     player.pingCd -= dt;
