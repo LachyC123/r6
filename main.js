@@ -8,7 +8,7 @@ renderer.physicallyCorrectLights = true;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.24;
+renderer.toneMappingExposure = 1.32;
 renderer.setClearColor(0x040812);
 
 const scene = new THREE.Scene();
@@ -35,7 +35,7 @@ const ui = {
   teamRole: document.getElementById('teamRole')
 };
 
-const ambient = new THREE.HemisphereLight(0x94b4dc, 0x070c14, 0.95);
+const ambient = new THREE.HemisphereLight(0xb4cfff, 0x070c14, 1.05);
 scene.add(ambient);
 const keyLight = new THREE.DirectionalLight(0xb8d4ff, 2.4);
 keyLight.position.set(8, 16, 4);
@@ -44,6 +44,9 @@ scene.add(keyLight);
 const bounceLight = new THREE.PointLight(0x7ca6ff, 25, 55, 2);
 bounceLight.position.set(0, 5.2, 2);
 scene.add(bounceLight);
+const moonFill = new THREE.DirectionalLight(0x8fc5ff, 1.1);
+moonFill.position.set(-10, 9, -6);
+scene.add(moonFill);
 
 const state = {
   phase: 'prep',
@@ -97,6 +100,12 @@ function buildWeaponViewModel() {
   sight.position.set(0, 0.11, -0.36);
   gunRoot.add(sight);
 
+  const opticLens = box(0.06, 0.045, 0.02, 0x8dc8ff, { roughness: 0.05, metalness: 0.92, emissive: 0x1b7ac2, emissiveIntensity: 0.28 });
+  opticLens.position.set(0, 0.11, -0.45);
+  opticLens.material.transparent = true;
+  opticLens.material.opacity = 0.78;
+  gunRoot.add(opticLens);
+
   const grip = box(0.08, 0.26, 0.12, 0x2f3642, { roughness: 0.66, metalness: 0.42 });
   grip.rotation.x = -0.25;
   grip.position.set(-0.01, -0.14, -0.21);
@@ -106,6 +115,20 @@ function buildWeaponViewModel() {
   mag.rotation.x = -0.14;
   mag.position.set(0, -0.16, -0.34);
   gunRoot.add(mag);
+
+  const foregrip = box(0.06, 0.18, 0.09, 0x2a313c, { roughness: 0.4, metalness: 0.62 });
+  foregrip.position.set(-0.02, -0.12, -0.62);
+  gunRoot.add(foregrip);
+
+  const leftGlove = box(0.11, 0.12, 0.18, 0x161b24, { roughness: 0.8, metalness: 0.15 });
+  leftGlove.position.set(-0.14, -0.1, -0.58);
+  leftGlove.rotation.z = 0.2;
+  gunRoot.add(leftGlove);
+
+  const rightGlove = box(0.11, 0.13, 0.17, 0x1a1f2b, { roughness: 0.78, metalness: 0.12 });
+  rightGlove.position.set(0.08, -0.13, -0.2);
+  rightGlove.rotation.z = -0.25;
+  gunRoot.add(rightGlove);
 
   weaponMuzzle.position.set(0, 0.004, -1.17);
   gunRoot.add(weaponMuzzle);
@@ -302,7 +325,10 @@ function makeMap() {
   world.add(ceiling);
 
   const walls = [
-    [0, 1.5, 15, 30, 3, 0.4], [0, 1.5, -15, 30, 3, 0.4], [15, 1.5, 0, 0.4, 3, 30], [-15, 1.5, 0, 0.4, 3, 30],
+    [0, 1.5, 15, 30, 3, 0.4],
+    [-11, 1.5, -15, 8, 3, 0.4], [-0.6, 1.5, -15, 10.8, 3, 0.4], [10.8, 1.5, -15, 8.4, 3, 0.4],
+    [15, 1.5, 9.2, 0.4, 3, 11.2], [15, 1.5, -2.6, 0.4, 3, 9.2], [15, 1.5, -14, 0.4, 3, 1.8],
+    [-15, 1.5, 9.2, 0.4, 3, 11.2], [-15, 1.5, -5.8, 0.4, 3, 16.2],
     [0, 1.5, 9.6, 21, 3, 0.4], [-11.2, 1.5, 5.6, 7.2, 3, 0.4], [7.5, 1.5, 6.4, 15, 3, 0.4],
     [-7.2, 1.5, 0, 0.4, 3, 19], [6.6, 1.5, 0, 0.4, 3, 16], [0, 1.5, -3.8, 10, 3, 0.4],
     [0, 1.5, -9.7, 17, 3, 0.4], [-3.8, 1.5, -7.1, 0.4, 3, 5.6], [4.8, 1.5, -12, 0.4, 3, 6],
@@ -413,11 +439,19 @@ function makeMap() {
     world.add(banner);
   });
 
-  const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8 });
-  door.position.set(-7.1, 1.2, -3.8);
-  world.add(door);
-  visionOccluders.push(door);
-  destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
+  const doorSpots = [
+    { pos: [-7.1, 1.2, -3.8], rot: 0 },
+    { pos: [5.7, 1.2, -14.75], rot: Math.PI / 2 },
+    { pos: [-15, 1.2, 3], rot: Math.PI / 2 }
+  ];
+  doorSpots.forEach((spot) => {
+    const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8 });
+    door.position.set(...spot.pos);
+    door.rotation.y = spot.rot;
+    world.add(door);
+    visionOccluders.push(door);
+    destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
+  });
 
   const weakWall = box(0.4, 2.4, 3.6, 0x735f4d, { map: concreteTex, roughness: 0.92 });
   weakWall.position.set(6.6, 1.2, -7.5);
@@ -429,7 +463,8 @@ function makeMap() {
     { pos: [14.75, 1.5, -8.2], rot: 0, size: [0.08, 1.6, 2.7] },
     { pos: [14.75, 1.5, -11.8], rot: 0, size: [0.08, 1.6, 2.7] },
     { pos: [-14.75, 1.5, 6], rot: 0, size: [0.08, 1.6, 2.7] },
-    { pos: [2, 1.45, 14.75], rot: Math.PI / 2, size: [2.6, 1.5, 0.08] }
+    { pos: [2, 1.45, 14.75], rot: Math.PI / 2, size: [2.6, 1.5, 0.08] },
+    { pos: [8.4, 1.45, -14.75], rot: Math.PI / 2, size: [2.1, 1.5, 0.08] }
   ];
   windowSpots.forEach(({ pos, rot, size }, i) => {
     const glass = box(size[0], size[1], size[2], 0x7ba9d2, { metalness: 0.3, roughness: 0.16 });
@@ -518,6 +553,20 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   const visor = box(0.34, 0.14, 0.06, 0x111723, { roughness: 0.1, metalness: 0.82, emissive: 0x0d4c80, emissiveIntensity: 0.28 });
   visor.position.set(0, -0.02, -0.24);
   helmet.add(visor);
+
+  const headset = box(0.1, 0.2, 0.1, 0x232a36, { roughness: 0.35, metalness: 0.62 });
+  headset.position.set(-0.26, 0, 0.02);
+  helmet.add(headset);
+  const headsetR = headset.clone();
+  headsetR.position.x = 0.26;
+  helmet.add(headsetR);
+
+  const shoulderL = box(0.18, 0.2, 0.2, team === 'atk' ? 0x334a64 : 0x6a3d3d, { roughness: 0.58, metalness: 0.22 });
+  shoulderL.position.set(-0.38, 0.3, -0.02);
+  m.add(shoulderL);
+  const shoulderR = shoulderL.clone();
+  shoulderR.position.x = 0.38;
+  m.add(shoulderR);
 
   const leftLeg = box(0.2, 0.56, 0.2, 0x212833, { roughness: 0.76, metalness: 0.1 });
   leftLeg.position.set(-0.18, -0.86, 0);
@@ -838,6 +887,29 @@ function getNearestTacticalCover(origin, fallback, botTeam) {
   return pick ? pick.clone().setY(1) : candidates[0].clone().setY(1);
 }
 
+
+function getBotNavigationTarget(origin, desired) {
+  const eyeOrigin = origin.clone().setY(1.2);
+  const eyeDesired = desired.clone().setY(1.2);
+  if (hasLineOfSight(eyeOrigin, eyeDesired)) return desired.clone();
+
+  const viableNodes = navNodes.filter((node) => {
+    if (colliders.some((c) => c.containsPoint(node))) return false;
+    return hasLineOfSight(eyeOrigin, node.clone().setY(1.2));
+  });
+  if (!viableNodes.length) return desired.clone();
+
+  viableNodes.sort((a, b) => a.distanceTo(desired) - b.distanceTo(desired));
+  return viableNodes[0].clone();
+}
+
+function getClosestEntryPoint(pos) {
+  const breachables = destructibles.filter((d) => !d.destroyed && (d.type === 'window' || d.type === 'door' || d.type === 'wall'));
+  if (!breachables.length) return null;
+  breachables.sort((a, b) => a.mesh.position.distanceTo(pos) - b.mesh.position.distanceTo(pos));
+  return breachables[0];
+}
+
 function botThink(bot, dt) {
   if (bot.dead) return;
   if (state.phase === 'prep' && !state.bombPlanted) {
@@ -947,16 +1019,18 @@ function botThink(bot, dt) {
     const fallback = getNearestTacticalCover(myPos, bot.pingTarget || state.objectivePos, bot.team);
     if (fallback) target = fallback;
   }
+
+  const activeBreach = getClosestEntryPoint(myPos);
   const attackWindows = destructibles.filter(d => !d.destroyed && d.type === 'window');
-  if (bot.team === 'atk' && state.phase === 'action' && attackWindows.length) {
-    const preferredWindow = attackWindows.sort((a, b) => a.mesh.position.distanceTo(myPos) - b.mesh.position.distanceTo(myPos))[0];
-    const laneDir = preferredWindow.mesh.position.clone().sub(state.objectivePos).setY(0).normalize();
-    const staging = preferredWindow.mesh.position.clone().addScaledVector(laneDir, 3.1);
+  if (bot.team === 'atk' && state.phase === 'action' && activeBreach) {
+    const laneDir = activeBreach.mesh.position.clone().sub(state.objectivePos).setY(0).normalize();
+    const staging = activeBreach.mesh.position.clone().addScaledVector(laneDir, 2.6);
     target = staging;
-    if (myPos.distanceTo(preferredWindow.mesh.position) < 4.5) {
+    if (myPos.distanceTo(activeBreach.mesh.position) < 4.6) {
       bot.shootTimer -= dt;
       if (bot.shootTimer <= 0) {
-        shoot(bot, preferredWindow.mesh.position.clone().setY(1.5).sub(myPos).normalize(), 25, 0.035);
+        const breachAimHeight = activeBreach.type === 'door' ? 1.1 : 1.5;
+        shoot(bot, activeBreach.mesh.position.clone().setY(breachAimHeight).sub(myPos).normalize(), 25, 0.035);
         bot.shootTimer = 0.22 + Math.random() * 0.2;
       }
     }
@@ -968,6 +1042,9 @@ function botThink(bot, dt) {
     if (state.atkObjectiveKnown && bot.alert <= 0) {
       target = state.objectivePos.clone().add(new THREE.Vector3((bot.spawnIndex - 1.5) * 1.1, 0, -1.8));
     }
+    if (bot.role === 'Roamer' && activeBreach && activeBreach.mesh.position.distanceTo(state.objectivePos) > 4) {
+      target = activeBreach.mesh.position.clone().add(new THREE.Vector3(bot.spawnIndex % 2 ? 1.5 : -1.5, 0, 1.2));
+    }
   } else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget && !attackWindows.length) {
     const flank = bot.pingTarget.clone().add(new THREE.Vector3((bot.spawnIndex % 2 ? 1 : -1) * 2.4, 0, 1.4));
     target = flank;
@@ -978,17 +1055,20 @@ function botThink(bot, dt) {
   }
   if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
 
-  const move = target.clone().sub(myPos); move.y = 0;
+  const navTarget = getBotNavigationTarget(myPos, target);
+  const move = navTarget.clone().sub(myPos); move.y = 0;
   if (move.length() > 0.35) {
     move.normalize();
     const step = move.clone().multiplyScalar((bot.team === 'atk' ? 2.6 : 2.3) * dt);
     const next = myPos.clone().add(step);
-    if (!colliders.some(c => c.containsPoint(next))) {
+    const blockedNext = colliders.some(c => c.containsPoint(next)) || destructibles.some((d) => !d.destroyed && d.bounds.containsPoint(next));
+    if (!blockedNext) {
       myPos.copy(next);
     } else {
       const sidestep = new THREE.Vector3(-move.z, 0, move.x).multiplyScalar(step.length() * 0.8 * bot.strafeDir);
       const alt = myPos.clone().add(sidestep);
-      if (!colliders.some(c => c.containsPoint(alt))) myPos.copy(alt);
+      const blockedAlt = colliders.some(c => c.containsPoint(alt)) || destructibles.some((d) => !d.destroyed && d.bounds.containsPoint(alt));
+      if (!blockedAlt) myPos.copy(alt);
       else bot.strafeDir *= -1;
     }
   }
@@ -1005,7 +1085,7 @@ function botThink(bot, dt) {
       face.normalize();
       const side = new THREE.Vector3(-face.z, 0, face.x).multiplyScalar(bot.strafeDir * dt * 1.1);
       const probe = myPos.clone().add(side);
-      if (!colliders.some(c => c.containsPoint(probe))) myPos.add(side);
+      if (!colliders.some(c => c.containsPoint(probe)) && !destructibles.some((d) => !d.destroyed && d.bounds.containsPoint(probe))) myPos.add(side);
       if (bot.gunMesh) bot.gunMesh.lookAt((visible.mesh ? visible.mesh.position : visible.pos).clone().setY(1.25));
     }
   } else if (bot.gunMesh) {
