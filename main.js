@@ -50,7 +50,7 @@ const state = {
   bombPlanted: false,
   bombTimer: 45,
   gameOver: false,
-  objectivePos: new THREE.Vector3(0, 0, -10)
+  objectivePos: new THREE.Vector3(0.2, 0, -11.2)
 };
 
 const input = { keys: {}, mouseDx: 0, mouseDy: 0, ads: false, fire: false, lean: 0, melee: false };
@@ -168,125 +168,136 @@ function box(w, h, d, c, opts = {}) {
 }
 
 function makeMap() {
-  const floorTex = makeNoiseTexture('#2f3743', '#252e38');
-  const wallTex = makeNoiseTexture('#556475', '#394756');
-  const concreteTex = makeNoiseTexture('#3b434f', '#2f3641');
-  const trimTex = makeNoiseTexture('#2c3542', '#202734');
+  const floorTex = makeNoiseTexture('#303945', '#232b36');
+  const wallTex = makeNoiseTexture('#5f6e80', '#3b4654');
+  const concreteTex = makeNoiseTexture('#3f4752', '#323943');
+  const trimTex = makeNoiseTexture('#2d3643', '#1e2530');
 
-  const floor = box(30, 0.2, 30, 0x2a3441, { map: floorTex, roughness: 0.68, metalness: 0.18 });
+  const floor = box(30, 0.2, 30, 0x293340, { map: floorTex, roughness: 0.66, metalness: 0.2 });
   floor.position.y = -0.1;
   floor.receiveShadow = true;
   world.add(floor);
 
-  const ceiling = box(30, 0.3, 30, 0x1b212b, { map: trimTex, roughness: 0.86, metalness: 0.24 });
+  const ceiling = box(30, 0.3, 30, 0x1a212d, { map: trimTex, roughness: 0.88, metalness: 0.2 });
   ceiling.position.y = 4;
   world.add(ceiling);
 
-  const perimeter = box(29.4, 0.1, 29.4, 0x111722, { roughness: 0.9 });
-  perimeter.position.set(0, 0.005, 0);
-  world.add(perimeter);
-
   const walls = [
     [0, 1.5, 15, 30, 3, 0.4], [0, 1.5, -15, 30, 3, 0.4], [15, 1.5, 0, 0.4, 3, 30], [-15, 1.5, 0, 0.4, 3, 30],
-    [0, 1.5, 9.2, 19, 3, 0.4], [0, 1.5, -9.2, 18, 3, 0.4],
-    [-6.4, 1.5, 2.6, 0.4, 3, 13.4], [6.4, 1.5, -2.6, 0.4, 3, 13.4],
-    [-2.8, 1.5, 0.2, 6.4, 3, 0.4], [3.2, 1.5, -0.2, 6.6, 3, 0.4],
-    [-11, 1.5, -3.8, 8, 3, 0.4], [11, 1.5, 3.8, 8, 3, 0.4]
+    [0, 1.5, 9.6, 21, 3, 0.4], [-11.2, 1.5, 5.6, 7.2, 3, 0.4], [7.5, 1.5, 6.4, 15, 3, 0.4],
+    [-7.2, 1.5, 0, 0.4, 3, 19], [6.6, 1.5, 0, 0.4, 3, 16], [0, 1.5, -3.8, 10, 3, 0.4],
+    [0, 1.5, -9.7, 17, 3, 0.4], [-3.8, 1.5, -7.1, 0.4, 3, 5.6], [4.8, 1.5, -12, 0.4, 3, 6],
+    [10.5, 1.5, -2, 9, 3, 0.4], [-11.3, 1.5, -1.8, 7.4, 3, 0.4]
   ];
   walls.forEach(([x, y, z, w, h, d]) => {
-    const m = box(w, h, d, 0x4a5b6e, { map: wallTex, roughness: 0.74, metalness: 0.12 });
+    const m = box(w, h, d, 0x4d6074, { map: wallTex, roughness: 0.76, metalness: 0.1 });
     m.position.set(x, y, z);
     m.castShadow = true;
     world.add(m);
     colliders.push(new THREE.Box3().setFromObject(m));
   });
 
-  const site = box(4.6, 0.12, 4.6, 0x465a72, { emissive: 0x10243d, emissiveIntensity: 0.5, metalness: 0.35, roughness: 0.38 });
-  site.position.set(0, 0.05, -10);
-  world.add(site);
+  const bombRoomFloor = box(7.4, 0.12, 7.4, 0x3f5672, { emissive: 0x153052, emissiveIntensity: 0.42, metalness: 0.28, roughness: 0.44 });
+  bombRoomFloor.position.set(0.2, 0.03, -11.2);
+  world.add(bombRoomFloor);
 
-  const siteRing = box(5.5, 0.04, 5.5, 0x162232, { emissive: 0x2f9fff, emissiveIntensity: 0.28 });
-  siteRing.position.set(0, 0.08, -10);
+  const siteRing = box(8.2, 0.04, 8.2, 0x16273b, { emissive: 0x39a5ff, emissiveIntensity: 0.3, roughness: 0.6 });
+  siteRing.position.set(0.2, 0.07, -11.2);
   world.add(siteRing);
 
-  const weakWall = box(0.4, 2.4, 3.6, 0x75644f, { map: concreteTex, roughness: 0.92 });
-  weakWall.position.set(5.7, 1.2, -5.6);
-  world.add(weakWall);
-  destructibles.push({ type: 'wall', hp: 70, mesh: weakWall, bounds: new THREE.Box3().setFromObject(weakWall), destroyed: false });
+  const bombCrate = box(1.8, 1.4, 1.4, 0x6a4f34, { roughness: 0.72, metalness: 0.2 });
+  bombCrate.position.set(0.2, 0.7, -11.2);
+  world.add(bombCrate);
+  colliders.push(new THREE.Box3().setFromObject(bombCrate));
 
-  const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8 });
-  door.position.set(-5.9, 1.2, 3.3);
-  world.add(door);
-  destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
+  const bombRack = box(4.8, 2.2, 1.1, 0x222d3b, { map: trimTex, roughness: 0.52, metalness: 0.55 });
+  bombRack.position.set(-4.2, 1.1, -11.5);
+  world.add(bombRack);
+  colliders.push(new THREE.Box3().setFromObject(bombRack));
 
-  const glass = box(3.2, 1.5, 0.1, 0x7ba9d2);
-  glass.material.transparent = true;
-  glass.material.opacity = 0.5;
-  glass.position.set(10.8, 1.45, -3.2);
-  world.add(glass);
-  destructibles.push({ type: 'glass', hp: 25, mesh: glass, bounds: new THREE.Box3().setFromObject(glass), destroyed: false });
-
-
-  const stripGeo = new THREE.BoxGeometry(0.15, 0.06, 3.4);
-  const stripMat = new THREE.MeshStandardMaterial({ color: 0x87d6ff, emissive: 0x2b8ec2, emissiveIntensity: 1.1, roughness: 0.25, metalness: 0.65 });
-  [-10.5, -2, 8.4].forEach((x, i) => {
-    const strip = new THREE.Mesh(stripGeo, stripMat.clone());
-    strip.position.set(x, 3.45, i === 0 ? -11.5 : 7.8);
-    strip.castShadow = false;
-    world.add(strip);
+  const lockers = [[8.6, -11.1], [8.6, -9.7], [8.6, -8.3], [8.6, -6.9], [-12.2, 7.8], [-10.8, 7.8], [-9.4, 7.8]];
+  lockers.forEach(([x, z], i) => {
+    const locker = box(0.92, 2.2, 0.9, i < 4 ? 0x3d4956 : 0x4c3f34, { roughness: 0.68, metalness: 0.3 });
+    locker.position.set(x, 1.1, z);
+    world.add(locker);
+    colliders.push(new THREE.Box3().setFromObject(locker));
   });
 
-  for (let i = 0; i < 20; i++) {
-    const pillar = box(0.35, 2.8, 0.35, 0x203446, { roughness: 0.6, metalness: 0.35 });
-    const edge = i % 4;
-    const offset = -12 + (i % 4) * 8;
-    pillar.position.set(edge < 2 ? offset : (edge === 2 ? -12 : 12), 1.4, edge < 2 ? (edge === 0 ? -12 : 12) : offset);
-    world.add(pillar);
-  }
-
   const coverSpots = [
-    [-9.4, 0.65, 10.4], [-5.2, 0.65, 10.1], [8.8, 0.65, -10.2], [4.6, 0.65, -10.5],
-    [-10.8, 0.65, 4.2], [10.8, 0.65, -4.2], [-1.4, 0.65, 6.1], [1.7, 0.65, -6.3],
-    [-8.4, 0.65, -1.2], [8.2, 0.65, 1.3]
+    [-12, 0.65, 10.5], [-9.5, 0.65, 10.1], [-6.8, 0.65, 10.3], [5.8, 0.65, 8.8],
+    [10.8, 0.65, 4.8], [11.2, 0.65, -5], [2.3, 0.65, -6.2], [-1.3, 0.65, -5.8],
+    [-9.8, 0.65, -1.2], [7.8, 0.65, 1.1], [-5.5, 0.65, -12.5], [3.2, 0.65, -13]
   ];
   coverSpots.forEach(([x, y, z], i) => {
-    const c = box(1.2, 1.2 + (i % 3) * 0.35, 1.2, 0x2f3a49, { map: concreteTex, roughness: 0.82 });
+    const c = box(1.3, 1.1 + (i % 4) * 0.28, 1.3, 0x2f3b49, { map: concreteTex, roughness: 0.83 });
     c.position.set(x, y, z);
     world.add(c);
     colliders.push(new THREE.Box3().setFromObject(c));
   });
 
-  const serverStack = box(3.5, 2.4, 1.5, 0x222c3a, { map: trimTex, roughness: 0.55, metalness: 0.5 });
-  serverStack.position.set(0, 1.2, -1.8);
-  world.add(serverStack);
-  colliders.push(new THREE.Box3().setFromObject(serverStack));
+  const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8 });
+  door.position.set(-7.1, 1.2, -3.8);
+  world.add(door);
+  destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
 
-  const catwalk = box(6.8, 0.18, 1.8, 0x314152, { roughness: 0.45, metalness: 0.55 });
-  catwalk.position.set(0, 2.7, -9.2);
-  world.add(catwalk);
+  const weakWall = box(0.4, 2.4, 3.6, 0x735f4d, { map: concreteTex, roughness: 0.92 });
+  weakWall.position.set(6.6, 1.2, -7.5);
+  world.add(weakWall);
+  destructibles.push({ type: 'wall', hp: 70, mesh: weakWall, bounds: new THREE.Box3().setFromObject(weakWall), destroyed: false });
+
+  const windowSpots = [
+    { pos: [14.75, 1.5, -8.2], rot: 0, size: [0.08, 1.6, 2.7] },
+    { pos: [14.75, 1.5, -11.8], rot: 0, size: [0.08, 1.6, 2.7] },
+    { pos: [-14.75, 1.5, 6], rot: 0, size: [0.08, 1.6, 2.7] },
+    { pos: [2, 1.45, 14.75], rot: Math.PI / 2, size: [2.6, 1.5, 0.08] }
+  ];
+  windowSpots.forEach(({ pos, rot, size }, i) => {
+    const glass = box(size[0], size[1], size[2], 0x7ba9d2, { metalness: 0.3, roughness: 0.16 });
+    glass.material.transparent = true;
+    glass.material.opacity = 0.5;
+    glass.position.set(...pos);
+    glass.rotation.y = rot;
+    world.add(glass);
+    destructibles.push({ type: 'window', hp: 32, mesh: glass, bounds: new THREE.Box3().setFromObject(glass), destroyed: false, breachLane: i });
+
+    const frame = box(size[0] + 0.16, size[1] + 0.2, size[2] + 0.16, 0x1b2533, { roughness: 0.55, metalness: 0.64 });
+    frame.position.copy(glass.position);
+    frame.rotation.copy(glass.rotation);
+    world.add(frame);
+  });
+
+  const stripGeo = new THREE.BoxGeometry(0.15, 0.06, 3.8);
+  const stripMat = new THREE.MeshStandardMaterial({ color: 0x9bdaff, emissive: 0x3c8dbb, emissiveIntensity: 1, roughness: 0.25, metalness: 0.65 });
+  [[-10.5, -11.5], [-1.2, -11.5], [8.3, -11.5], [-11, 8.8], [9.5, 8.8]].forEach(([x, z]) => {
+    const strip = new THREE.Mesh(stripGeo, stripMat.clone());
+    strip.position.set(x, 3.45, z);
+    world.add(strip);
+  });
 
   const bombLights = [
-    new THREE.PointLight(0xff4f4f, 0.7, 10, 2),
-    new THREE.PointLight(0x4f8dff, 0.55, 10, 2)
+    new THREE.PointLight(0xff4f4f, 0.86, 12, 2),
+    new THREE.PointLight(0x4f8dff, 0.65, 11, 2),
+    new THREE.PointLight(0xffb16a, 0.5, 8, 2)
   ];
-  bombLights[0].position.set(-1.7, 1.1, -10);
-  bombLights[1].position.set(1.7, 1.1, -10);
+  bombLights[0].position.set(-1.2, 1.2, -11.2);
+  bombLights[1].position.set(1.5, 1.2, -11.2);
+  bombLights[2].position.set(0.2, 2.5, -9.8);
   bombLights.forEach((l) => {
     world.add(l);
     flickerLights.push(l);
   });
 
-  const accentA = new THREE.PointLight(0x5ec8ff, 1.1, 20, 2);
-  accentA.position.set(-10, 2.8, -8);
+  const accentA = new THREE.PointLight(0x5ec8ff, 1.1, 21, 2);
+  accentA.position.set(-9.5, 2.8, -6.5);
   world.add(accentA);
   flickerLights.push(accentA);
 
-  const accentB = new THREE.PointLight(0x8dffd2, 0.9, 18, 2);
-  accentB.position.set(6, 2.4, 7);
+  const accentB = new THREE.PointLight(0x8dffd2, 0.95, 18, 2);
+  accentB.position.set(7.2, 2.4, 6.8);
   world.add(accentB);
   flickerLights.push(accentB);
 
-  const camPoints = [new THREE.Vector3(-12, 3.3, -11), new THREE.Vector3(12, 3.3, 8), new THREE.Vector3(0, 3.4, 0)];
+  const camPoints = [new THREE.Vector3(-12, 3.3, -11), new THREE.Vector3(12, 3.3, 8), new THREE.Vector3(1, 3.4, -5), new THREE.Vector3(13.2, 3.3, -10.8)];
   camPoints.forEach((p, i) => {
     const cam = box(0.3, 0.2, 0.3, 0x9bc0e8);
     cam.position.copy(p);
@@ -336,11 +347,11 @@ function updateUI() {
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
   ui.gadgetB.textContent = `[F] Scout Pulse: ${player.pulseCd <= 0 ? 'Ready' : player.pulseCd.toFixed(1) + 's'}`;
   if (state.phase === 'prep') {
-    ui.objective.innerHTML = 'Prep Phase: Drone and set entries before assault begins.';
+    ui.objective.innerHTML = 'Prep Phase: Locate Bomb Room, mark windows, and set breach routes.';
   } else if (state.bombPlanted) {
     ui.objective.innerHTML = '<span class="warn">Post-Plant: Defend the Rift Charge detonation.</span>';
   } else {
-    ui.objective.innerHTML = 'Action Phase: Clear defenders and plant at Vault Nexus.';
+    ui.objective.innerHTML = 'Action Phase: Attack through windows, clear rooms, and plant in Bomb Room.';
   }
 }
 
@@ -394,7 +405,7 @@ function spawnTrail(start, end, fromPlayer) {
 
 function destroyDestructible(d) {
   d.destroyed = true;
-  if (d.type === 'glass') {
+  if (d.type === 'glass' || d.type === 'window') {
     d.mesh.material.opacity = 0.05;
     for (let i = 0; i < 12; i++) {
       const shard = box(0.08, 0.08, 0.08, 0x9ad7ff);
@@ -530,9 +541,24 @@ function botThink(bot, dt) {
   }
 
   let target = state.objectivePos;
+  const attackWindows = destructibles.filter(d => !d.destroyed && d.type === 'window');
+  if (bot.team === 'atk' && state.phase === 'action' && attackWindows.length) {
+    const preferredWindow = attackWindows.sort((a, b) => a.mesh.position.distanceTo(myPos) - b.mesh.position.distanceTo(myPos))[0];
+    const laneDir = preferredWindow.mesh.position.clone().sub(state.objectivePos).setY(0).normalize();
+    const staging = preferredWindow.mesh.position.clone().addScaledVector(laneDir, 2.1);
+    target = staging;
+    if (myPos.distanceTo(preferredWindow.mesh.position) < 3.2) {
+      bot.shootTimer -= dt;
+      if (bot.shootTimer <= 0) {
+        shoot(bot, preferredWindow.mesh.position.clone().setY(1.5).sub(myPos).normalize(), 25, 0.035);
+        bot.shootTimer = 0.22 + Math.random() * 0.2;
+      }
+    }
+  }
+
   if (bot.team === 'def' && bot.role === 'Anchor') target = state.objectivePos.clone().add(new THREE.Vector3(Math.sin(performance.now() * 0.001) * 1.5, 0, 1));
   else if (bot.team === 'def' && bot.role === 'Roamer') target = navNodes[(Math.floor(performance.now() * 0.001 + bot.mesh.id) % navNodes.length)];
-  else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget) target = bot.pingTarget;
+  else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget && !attackWindows.length) target = bot.pingTarget;
   if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
 
   const move = target.clone().sub(myPos); move.y = 0;
@@ -605,7 +631,12 @@ function resetRound() {
   state.bombTimer = state.phaseConfig.postPlant;
   player.hp = 100; player.alive = true; player.pos.set(-12, 1.7, 12); player.ammo = 30; player.breachCharges = 2;
   camera.position.copy(player.pos);
-  destructibles.forEach(d => { d.destroyed = false; d.mesh.visible = true; d.mesh.material.opacity = d.type === 'glass' ? 0.5 : 1; d.hp = d.type === 'glass' ? 25 : (d.type === 'door' ? 80 : 70); });
+  destructibles.forEach(d => {
+    d.destroyed = false;
+    d.mesh.visible = true;
+    d.mesh.material.opacity = (d.type === 'glass' || d.type === 'window') ? 0.5 : 1;
+    d.hp = (d.type === 'glass' || d.type === 'window') ? 32 : (d.type === 'door' ? 80 : 70);
+  });
   world.children.filter(o => o.userData.temp).forEach(o => world.remove(o));
   spawnTeams();
 }
