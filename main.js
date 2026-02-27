@@ -171,6 +171,22 @@ const prepSpots = {
   ]
 };
 
+const defenderSetupSpots = {
+  tripwire: [
+    new THREE.Vector3(-3.6, 0.06, -8.2),
+    new THREE.Vector3(2.4, 0.06, -9.4),
+    new THREE.Vector3(-0.2, 0.06, -6.9)
+  ],
+  jammer: [
+    new THREE.Vector3(2, 0.17, -9),
+    new THREE.Vector3(-2.6, 0.17, -11.4)
+  ]
+};
+
+function isInsideBuilding(pos) {
+  return Math.abs(pos.x) < 14.3 && Math.abs(pos.z) < 14.3;
+}
+
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function beep(freq = 200, len = 0.05, type = 'triangle', vol = 0.03) {
   const o = audioCtx.createOscillator();
@@ -380,7 +396,8 @@ function makeBot(team, role, pos) {
   teammateOutlines.push({ mesh: outline, owner: m, team });
   return {
     team, role, mesh: m, hp: 100, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
-    shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4
+    shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4,
+    setupDone: false
   };
 }
 
@@ -423,7 +440,9 @@ function updateUI() {
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
   ui.gadgetB.textContent = `[F] Scout Pulse: ${player.pulseCd <= 0 ? 'Ready' : player.pulseCd.toFixed(1) + 's'}`;
   if (state.phase === 'prep') {
-    ui.objective.innerHTML = 'Prep Phase: Attackers stage outside to plan breaches while defenders set up inside Bomb Room.';
+    ui.objective.innerHTML = player.team === 'atk'
+      ? 'Prep Phase: Attackers are locked on drones and must scout from outside to locate Bomb Room.'
+      : 'Prep Phase: Defenders barricade, place traps, and fortify the site before action starts.';
   } else if (state.bombPlanted) {
     ui.objective.innerHTML = '<span class="warn">Post-Plant: Defend the Rift Charge detonation.</span>';
   } else {
@@ -537,6 +556,7 @@ function jammersAffect(pos, team) {
 }
 
 function deployDrone(toggle = true) {
+  if (state.phase === 'prep' && player.team === 'atk' && toggle === true && player.droneActive) return;
   if (!toggle) { player.droneActive = false; return; }
   player.droneActive = !player.droneActive;
   if (player.droneActive) {
@@ -603,6 +623,44 @@ function botThink(bot, dt) {
         prepWindow.hp = Math.min(48, prepWindow.hp + dt * 8);
         prepWindow.mesh.material.opacity = Math.min(0.75, prepWindow.mesh.material.opacity + dt * 0.12);
       }
+
+      const prepDoor = destructibles.find(d => !d.destroyed && d.type === 'door' && d.mesh.position.distanceTo(bot.mesh.position) < 3.2);
+      if (prepDoor) {
+        prepDoor.hp = Math.min(130, prepDoor.hp + dt * 18);
+        prepDoor.mesh.material.color.lerp(new THREE.Color(0x7f5f3f), dt * 0.8);
+      }
+
+      if (!bot.setupDone) {
+        if (bot.role === 'Intel' || bot.role === 'Denier') {
+          const idx = Math.floor(Math.random() * defenderSetupSpots.jammer.length);
+          const point = defenderSetupSpots.jammer[idx];
+          if (!gadgets.some(g => g.type === 'jammer' && g.mesh.position.distanceTo(point) < 0.7)) {
+            const j = box(0.5, 0.35, 0.5, 0xc783ff);
+            j.position.copy(point);
+            j.userData.temp = true;
+            world.add(j);
+            gadgets.push({ type: 'jammer', team: 'def', mesh: j, hp: 35, temp: true });
+            addFeed(`${bot.role} AI deployed jammer`);
+          }
+          bot.setupDone = true;
+        } else if (bot.role === 'Anchor' || bot.role === 'Roamer') {
+          const idx = Math.floor(Math.random() * defenderSetupSpots.tripwire.length);
+          const point = defenderSetupSpots.tripwire[idx];
+          if (!gadgets.some(g => g.type === 'tripwire' && g.mesh.position.distanceTo(point) < 0.7)) {
+            const t = box(0.3, 0.12, 0.3, 0xffb06f);
+            t.position.copy(point);
+            t.userData.temp = true;
+            world.add(t);
+            gadgets.push({ type: 'tripwire', team: 'def', mesh: t, hp: 25, temp: true });
+            addFeed(`${bot.role} AI set a trap`);
+          }
+          bot.setupDone = true;
+        }
+      }
+    }
+
+    if (bot.team === 'atk' && isInsideBuilding(bot.mesh.position)) {
+      bot.mesh.position.addScaledVector(bot.mesh.position.clone().setY(0).normalize(), dt * 1.8);
     }
     bot.shootTimer = 0;
     bot.alert = Math.max(0, bot.alert - dt);
@@ -723,6 +781,9 @@ function resetRound() {
     d.hp = (d.type === 'glass' || d.type === 'window') ? 32 : (d.type === 'door' ? 80 : 70);
   });
   world.children.filter(o => o.userData.temp).forEach(o => world.remove(o));
+  for (let i = gadgets.length - 1; i >= 0; i--) {
+    if (gadgets[i].temp) gadgets.splice(i, 1);
+  }
   spawnTeams();
 }
 
@@ -740,7 +801,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyQ') input.lean = -1;
   if (e.code === 'KeyE') input.lean = 1;
   if (e.code === 'Digit5') deployDrone(true);
-  if (e.code === 'Digit6') cycleCams();
+  if (e.code === 'Digit6' && !(state.phase === 'prep' && player.team === 'atk')) cycleCams();
   if (e.code === 'KeyG') placeBreachCharge();
   if (e.code === 'KeyF') pulseScan();
   if (e.code === 'KeyV') input.melee = true;
@@ -763,6 +824,13 @@ const clock = new THREE.Clock();
 
 function updatePlayer(dt) {
   if (!player.alive || state.gameOver) return;
+
+  if (state.phase === 'prep' && player.team === 'atk') {
+    if (!player.droneActive) deployDrone(true);
+    if (player.camMode) player.camMode = false;
+    player.pos.copy(teamSpawns.atk[0]).setY(1.7);
+  }
+
   weaponRig.visible = !player.droneActive && !player.camMode;
 
   if (player.camMode) {
@@ -795,7 +863,7 @@ function updatePlayer(dt) {
   player.sprint = !!((input.keys['ShiftLeft'] || input.keys['ShiftRight']) && !player.crouch && !input.ads);
   const walk = input.keys['AltLeft'] || input.keys['AltRight'];
 
-  const speed = player.crouch ? 2.2 : player.sprint ? 5.1 : walk ? 2.5 : input.ads ? 2.8 : 3.8;
+  const speed = (state.phase === 'prep' && player.team === 'atk') ? 0 : (player.crouch ? 2.2 : player.sprint ? 5.1 : walk ? 2.5 : input.ads ? 2.8 : 3.8);
   const move = new THREE.Vector3((input.keys['KeyD'] ? 1 : 0) - (input.keys['KeyA'] ? 1 : 0), 0, (input.keys['KeyS'] ? 1 : 0) - (input.keys['KeyW'] ? 1 : 0));
   if (move.lengthSq()) {
     move.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
@@ -810,6 +878,11 @@ function updatePlayer(dt) {
         footTimer = player.crouch ? 0.45 : player.sprint ? 0.2 : 0.32;
       }
     }
+  }
+
+  if (state.phase === 'prep' && player.team === 'atk' && isInsideBuilding(player.pos)) {
+    const shove = player.pos.clone().setY(0).normalize().multiplyScalar(dt * 4);
+    player.pos.add(shove);
   }
 
   camera.fov = THREE.MathUtils.lerp(camera.fov, input.ads ? 56 : 75, dt * 8);
