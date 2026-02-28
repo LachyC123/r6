@@ -114,6 +114,44 @@ html, body {
   color: #cde3ff;
   box-shadow: 0 4px 16px rgba(11, 31, 60, 0.42);
 }
+#bombOwner {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8, 20, 36, 0.78);
+  border: 1px solid rgba(255, 201, 125, 0.44);
+  border-radius: 6px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  padding: 5px 12px;
+  color: #ffe4b4;
+  text-shadow: 0 0 10px rgba(255, 173, 82, 0.35);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
+}
+#bombOwner.player {
+  border-color: rgba(131, 237, 182, 0.65);
+  color: #c6ffe3;
+}
+#bombOwner.enemy {
+  border-color: rgba(255, 122, 122, 0.72);
+  color: #ffd0d0;
+}
+#bombMarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(12, 23, 40, 0.78);
+  border: 1px solid rgba(255, 200, 119, 0.65);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #ffe2b3;
+  white-space: nowrap;
+  box-shadow: 0 0 20px rgba(255, 163, 61, 0.35);
+}
 #leftPanel, #rightPanel {
   position: absolute;
   bottom: 20px;

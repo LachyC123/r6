@@ -57,7 +57,9 @@ const ui = {
   btnMelee: document.getElementById('btnMelee'),
   btnDrone: document.getElementById('btnDrone'),
   btnCams: document.getElementById('btnCams'),
-  btnPing: document.getElementById('btnPing')
+  btnPing: document.getElementById('btnPing'),
+  bombOwner: document.getElementById('bombOwner'),
+  bombMarker: document.getElementById('bombMarker')
 };
 
 const ambient = new THREE.HemisphereLight(0xd7ebff, 0x6f8aa9, 1.42);
@@ -828,6 +830,60 @@ function makeMap() {
   world.add(bombRack);
   addStaticCollider(bombRack);
 
+  const reinforcePanels = [
+    [-14.6, 1.2, -0.5, 0.08, 2.4, 5.8],
+    [14.6, 1.2, -1.8, 0.08, 2.4, 6.2],
+    [-0.2, 1.2, -14.6, 9.2, 2.4, 0.08]
+  ];
+  reinforcePanels.forEach(([x, y, z, w, h, d]) => {
+    const panel = box(w, h, d, 0x3a4656, { roughness: 0.45, metalness: 0.72, emissive: 0x1a2738, emissiveIntensity: 0.28 });
+    panel.position.set(x, y, z);
+    world.add(panel);
+  });
+
+  const serverRacks = [
+    [-10.5, 1.1, -5.9], [-10.5, 1.1, -4.2], [-10.5, 1.1, -2.5],
+    [-8.7, 1.1, -5.9], [-8.7, 1.1, -4.2], [-8.7, 1.1, -2.5]
+  ];
+  serverRacks.forEach(([x, y, z], i) => {
+    const rack = box(1.1, 2.2, 0.9, 0x1f2734, { roughness: 0.4, metalness: 0.74, emissive: i % 2 ? 0x1f7cbf : 0x2fbbd1, emissiveIntensity: 0.26 });
+    rack.position.set(x, y, z);
+    world.add(rack);
+    addStaticCollider(rack);
+  });
+
+  const archiveShelves = [[5.6, 1.1, -6.4], [7.6, 1.1, -6.4], [9.6, 1.1, -6.4], [11.6, 1.1, -6.4]];
+  archiveShelves.forEach(([x, y, z]) => {
+    const shelf = box(1.4, 2.2, 0.7, 0x5d4f3e, { roughness: 0.66, metalness: 0.24 });
+    shelf.position.set(x, y, z);
+    world.add(shelf);
+    addStaticCollider(shelf);
+  });
+
+  const ceilingPipes = [
+    [-11.5, 3.5, -3.2, 0xff724f], [-8.6, 3.5, -3.2, 0x63c7ff],
+    [7.2, 3.5, -1.6, 0xff724f], [9.9, 3.5, -1.6, 0x63c7ff],
+    [0.2, 3.5, -10.8, 0xffd468]
+  ];
+  ceilingPipes.forEach(([x, y, z, c]) => {
+    const pipe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.11, 0.11, 5.6, 12),
+      new THREE.MeshStandardMaterial({ color: c, roughness: 0.36, metalness: 0.78, emissive: c, emissiveIntensity: 0.18 })
+    );
+    pipe.rotation.z = Math.PI / 2;
+    pipe.position.set(x, y, z);
+    world.add(pipe);
+  });
+
+  const sandbagStacks = [[-1.5, 0.3, -7.2], [1.5, 0.3, -7.2], [12.5, 0.3, 5.8], [-12.4, 0.3, 5.8]];
+  sandbagStacks.forEach(([x, y, z]) => {
+    for (let i = 0; i < 3; i++) {
+      const bag = box(0.8, 0.35, 0.5, 0x82735c, { roughness: 0.82, metalness: 0.06 });
+      bag.position.set(x + (i - 1) * 0.55, y + (i === 1 ? 0.14 : 0), z + (i % 2 ? 0.14 : -0.12));
+      world.add(bag);
+    }
+  });
+
   const lockers = [[8.6, -11.1], [8.6, -9.7], [8.6, -8.3], [8.6, -6.9], [-12.2, 7.8], [-10.8, 7.8], [-9.4, 7.8]];
   lockers.forEach(([x, z], i) => {
     const locker = box(0.92, 2.2, 0.9, i < 4 ? 0x3d4956 : 0x4c3f34, { roughness: 0.68, metalness: 0.3 });
@@ -1102,6 +1158,15 @@ function makeBombVisuals() {
   bombDropRing.rotation.x = -Math.PI / 2;
   bombDropRing.visible = false;
   world.add(bombDropRing);
+
+  bombDropBeacon = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.42, 5.2, 18, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xffd588, emissive: 0xff9c2e, emissiveIntensity: 1, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+  );
+  bombDropBeacon.material.depthTest = false;
+  bombDropBeacon.renderOrder = 35;
+  bombDropBeacon.visible = false;
+  world.add(bombDropBeacon);
 }
 makeBombVisuals();
 
@@ -1367,12 +1432,13 @@ function assignRoundBombCarrier() {
 }
 
 function updateBombVisuals(dt) {
-  if (!bombCarryMesh || !bombDropCore || !bombDropRing) return;
+  if (!bombCarryMesh || !bombDropCore || !bombDropRing || !bombDropBeacon) return;
   const pulse = 0.95 + Math.sin(performance.now() * 0.009) * 0.1;
   if (state.bombPlanted) {
     bombCarryMesh.visible = false;
     bombDropCore.visible = false;
     bombDropRing.visible = false;
+    bombDropBeacon.visible = false;
     return;
   }
 
@@ -1395,9 +1461,13 @@ function updateBombVisuals(dt) {
     bombDropRing.position.copy(state.bombDropPos).setY(0.05);
     bombDropRing.scale.setScalar(1 + Math.sin(performance.now() * 0.008) * 0.16);
     bombDropRing.material.opacity = 0.62 + Math.sin(performance.now() * 0.012) * 0.25;
+    bombDropBeacon.visible = true;
+    bombDropBeacon.position.copy(state.bombDropPos).setY(2.8 + Math.sin(performance.now() * 0.005) * 0.2);
+    bombDropBeacon.material.opacity = 0.16 + Math.sin(performance.now() * 0.01) * 0.08;
   } else {
     bombDropCore.visible = false;
     bombDropRing.visible = false;
+    bombDropBeacon.visible = false;
   }
 }
 
@@ -1504,6 +1574,41 @@ function updateUI() {
     ui.objective.innerHTML = state.bombCarrier?.hasBomb
       ? `${entityLabel(state.bombCarrier)} has the Rift Charge. Reach Bomb Room and plant.`
       : 'Action Phase: Breach entry points, clear rooms, and plant in Bomb Room.';
+  }
+
+  if (ui.bombOwner) {
+    ui.bombOwner.classList.remove('player', 'enemy');
+    if (state.bombPlanted) {
+      ui.bombOwner.textContent = 'RIFT CHARGE: ARMED ON SITE';
+      ui.bombOwner.classList.add('enemy');
+    } else if (state.bombDropped) {
+      ui.bombOwner.textContent = `RIFT CHARGE: DROPPED IN ${getAreaNameFromPos(state.bombDropPos).toUpperCase()}`;
+    } else if (state.bombCarrier?.hasBomb) {
+      const carrierLabel = entityLabel(state.bombCarrier).toUpperCase();
+      ui.bombOwner.textContent = `RIFT CHARGE: ${carrierLabel}`;
+      if (state.bombCarrier === player) ui.bombOwner.classList.add('player');
+      else if (state.bombCarrier.team !== player.team) ui.bombOwner.classList.add('enemy');
+    } else {
+      ui.bombOwner.textContent = 'RIFT CHARGE: UNASSIGNED';
+    }
+  }
+
+  if (ui.bombMarker) {
+    const markerPos = state.bombDropped ? state.bombDropPos : (state.bombCarrier?.hasBomb ? (state.bombCarrier === player ? player.pos : state.bombCarrier.mesh.position) : null);
+    if (!markerPos || (state.bombCarrier === player && !state.bombDropped) || state.bombPlanted) {
+      ui.bombMarker.classList.add('hidden');
+    } else {
+      const camDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).setY(0).normalize();
+      const toBomb = markerPos.clone().sub(player.pos).setY(0);
+      const dist = toBomb.length();
+      const dirNorm = dist > 0.01 ? toBomb.clone().normalize() : camDir.clone();
+      const side = camDir.x * dirNorm.z - camDir.z * dirNorm.x;
+      const forward = camDir.dot(dirNorm);
+      const arrow = forward > 0.45 ? '▲' : forward < -0.45 ? '▼' : (side > 0 ? '▶' : '◀');
+      const status = state.bombDropped ? 'DROPPED' : 'CARRIER';
+      ui.bombMarker.textContent = `${arrow} RIFT ${status} · ${Math.round(dist)}m`;
+      ui.bombMarker.classList.remove('hidden');
+    }
   }
 }
 
