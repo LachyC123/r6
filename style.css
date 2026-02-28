@@ -37,6 +37,26 @@ html, body {
   mix-blend-mode: screen;
   opacity: 0.08;
 }
+#deathBanner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 218, 218, 0);
+  font-size: clamp(34px, 7vw, 78px);
+  letter-spacing: 0.14em;
+  font-weight: 800;
+  text-transform: uppercase;
+  text-shadow: 0 0 35px rgba(255, 72, 72, 0.6);
+  background: radial-gradient(circle at center, rgba(90, 5, 12, 0) 26%, rgba(90, 5, 12, 0) 58%, rgba(90, 5, 12, 0.5) 100%);
+  opacity: 0;
+  transform: scale(1.12);
+  transition: opacity 0.2s ease;
+}
+#deathBanner.show {
+  animation: death-flash 1.3s ease forwards;
+}
 #game {
   position: fixed;
   inset: 0;
@@ -193,6 +213,13 @@ html, body {
 @keyframes reticle-breathe {
   0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.92; }
   50% { transform: translate(-50%, -50%) scale(1.06); opacity: 1; }
+}
+
+@keyframes death-flash {
+  0% { opacity: 0; transform: scale(1.15); color: rgba(255, 228, 228, 0); }
+  18% { opacity: 1; transform: scale(1); color: rgba(255, 204, 204, 0.95); }
+  80% { opacity: 0.92; transform: scale(1.02); color: rgba(255, 172, 172, 0.9); }
+  100% { opacity: 0; transform: scale(1.1); color: rgba(255, 142, 142, 0); }
 }
 
 
