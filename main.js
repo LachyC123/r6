@@ -35,6 +35,7 @@ const ui = {
   gadgetB: document.getElementById('gadgetB'),
   feed: document.getElementById('feed'),
   deathBanner: document.getElementById('deathBanner'),
+  trapOverlay: document.getElementById('trapOverlay'),
   scoreboard: document.getElementById('scoreboard'),
   teamRole: document.getElementById('teamRole'),
   operatorPlate: document.getElementById('operatorPlate'),
@@ -108,7 +109,8 @@ const state = {
   objectivePos: new THREE.Vector3(-1.3, 0, -10.2),
   atkObjectiveKnown: false,
   plantingProgress: 0,
-  plantingActor: ''
+  plantingActor: '',
+  trapFx: 0
 };
 
 const input = { keys: {}, mouseDx: 0, mouseDy: 0, ads: false, fire: false, lean: 0, melee: false };
@@ -398,6 +400,7 @@ function buildBotWeapon(team = 'atk') {
 }
 
 const damageVignette = document.getElementById('vignette');
+const trapOverlay = document.getElementById('trapOverlay');
 const flickerLights = [];
 
 function makeNoiseTexture(base = '#253242', accent = '#1b2736') {
@@ -989,29 +992,6 @@ function makeMap() {
   visionOccluders.push(weakWall);
   destructibles.push({ type: 'wall', hp: 70, mesh: weakWall, bounds: new THREE.Box3().setFromObject(weakWall), destroyed: false });
 
-  const windowSpots = [
-    { pos: [14.75, 1.5, -8.2], rot: 0, size: [0.08, 1.6, 2.7] },
-    { pos: [14.75, 1.5, -11.8], rot: 0, size: [0.08, 1.6, 2.7] },
-    { pos: [-14.75, 1.5, 6], rot: 0, size: [0.08, 1.6, 2.7] },
-    { pos: [2, 1.45, 14.75], rot: Math.PI / 2, size: [2.6, 1.5, 0.08] },
-    { pos: [8.4, 1.45, -14.75], rot: Math.PI / 2, size: [2.1, 1.5, 0.08] }
-  ];
-  windowSpots.forEach(({ pos, rot, size }, i) => {
-    const glass = box(size[0], size[1], size[2], 0x7ba9d2, { metalness: 0.3, roughness: 0.16 });
-    glass.material.transparent = true;
-    glass.material.opacity = 0.5;
-    glass.position.set(...pos);
-    glass.rotation.y = rot;
-    world.add(glass);
-    visionOccluders.push(glass);
-    destructibles.push({ type: 'window', hp: 32, mesh: glass, bounds: new THREE.Box3().setFromObject(glass), destroyed: false, breachLane: i });
-
-    const frame = box(size[0] + 0.16, size[1] + 0.2, size[2] + 0.16, 0x1b2533, { roughness: 0.55, metalness: 0.64 });
-    frame.position.copy(glass.position);
-    frame.rotation.copy(glass.rotation);
-    world.add(frame);
-  });
-
   const stripGeo = new THREE.BoxGeometry(0.15, 0.06, 3.8);
   const stripMat = new THREE.MeshStandardMaterial({ color: 0x9bdaff, emissive: 0x3c8dbb, emissiveIntensity: 1, roughness: 0.25, metalness: 0.65 });
   [[-10.5, -11.5], [-1.2, -11.5], [8.3, -11.5], [-11, 8.8], [9.5, 8.8]].forEach(([x, z]) => {
@@ -1308,6 +1288,48 @@ function tryPickupDroppedBomb(entity, pos) {
   return true;
 }
 
+function autoRecoverDroppedBomb() {
+  if (!state.bombDropped || state.bombPlanted) return;
+  const candidates = bots.filter((b) => b.team === 'atk' && !b.dead && b.hp > 0);
+  if (player.team === 'atk' && player.alive) candidates.push(player);
+  if (!candidates.length) return;
+  candidates.sort((a, b) => {
+    const apos = a === player ? player.pos : a.mesh.position;
+    const bpos = b === player ? player.pos : b.mesh.position;
+    return apos.distanceTo(state.bombDropPos) - bpos.distanceTo(state.bombDropPos);
+  });
+  const nearest = candidates[0];
+  const npos = nearest === player ? player.pos : nearest.mesh.position;
+  if (npos.distanceTo(state.bombDropPos) < 1.35) tryPickupDroppedBomb(nearest, npos);
+}
+
+function triggerTrapHitVisual(intensity = 1) {
+  state.trapFx = Math.min(1.25, state.trapFx + intensity * 0.75);
+}
+
+function applyTrapDamageToPlayer(trap, damage = 58) {
+  if (!player.alive || player.team === trap.team || trap.type !== 'tripwire') return;
+  if (player.pos.distanceTo(trap.mesh.position) > 0.78) return;
+  trap.mesh.visible = false;
+  trap.type = 'spent';
+  player.hp -= damage;
+  shakeT = 0.28;
+  triggerTrapHitVisual(1);
+  addFeed('Trap triggered! You are wounded.');
+  if (player.hp <= 0) onPlayerEliminated('You were killed by a defender trap');
+}
+
+function applyTrapDamageToBot(bot, trap, damage = 58) {
+  if (bot.dead || bot.team === trap.team || trap.type !== 'tripwire') return;
+  if (bot.mesh.position.distanceTo(trap.mesh.position) > 0.78) return;
+  trap.mesh.visible = false;
+  trap.type = 'spent';
+  bot.hp -= damage;
+  bot.mesh.position.add(new THREE.Vector3((Math.random() - 0.5) * 1.7, 0, (Math.random() - 0.5) * 1.7));
+  if (bot.team === player.team) addFeed(`${bot.codename} was hit by a trap`);
+}
+
+
 function onBotEliminated(bot, killerLabel, hitPos = null) {
   if (bot.dead) return;
   bot.dead = true;
@@ -1481,7 +1503,7 @@ function updateUI() {
   } else {
     ui.objective.innerHTML = state.bombCarrier?.hasBomb
       ? `${entityLabel(state.bombCarrier)} has the Rift Charge. Reach Bomb Room and plant.`
-      : 'Action Phase: Attack through windows, clear rooms, and plant in Bomb Room.';
+      : 'Action Phase: Breach entry points, clear rooms, and plant in Bomb Room.';
   }
 }
 
@@ -1554,7 +1576,7 @@ function spawnTrail(start, end, fromPlayer) {
 
 function destroyDestructible(d) {
   d.destroyed = true;
-  if (d.type === 'glass' || d.type === 'window') {
+  if (d.type === 'glass') {
     d.mesh.material.opacity = 0.05;
     for (let i = 0; i < 12; i++) {
       const shard = box(0.08, 0.08, 0.08, 0x9ad7ff);
@@ -1600,7 +1622,7 @@ function pulseScan() {
   player.abilityCd = 12;
   if (player.ability === 'shockBreach') {
     const breachable = destructibles
-      .filter((d) => !d.destroyed && (d.type === 'door' || d.type === 'wall' || d.type === 'window'))
+      .filter((d) => !d.destroyed && (d.type === 'door' || d.type === 'wall'))
       .sort((a, b) => a.mesh.position.distanceTo(player.pos) - b.mesh.position.distanceTo(player.pos))[0];
     if (breachable && breachable.mesh.position.distanceTo(player.pos) < 4.2) {
       destroyDestructible(breachable);
@@ -1715,7 +1737,7 @@ function plantOrDefuse(dt) {
 function spawnDefGadgets() {
   const t1 = box(0.3, 0.12, 0.3, 0xffb06f);
   t1.position.set(-3.5, 0.06, -8.5); world.add(t1);
-  gadgets.push({ type: 'tripwire', team: 'def', mesh: t1, hp: 25 });
+  gadgets.push({ type: 'tripwire', team: 'def', mesh: t1, hp: 25, lethal: true });
   const j = box(0.5, 0.35, 0.5, 0xc783ff);
   j.position.set(2, 0.17, -9); world.add(j);
   gadgets.push({ type: 'jammer', team: 'def', mesh: j, hp: 35 });
@@ -1749,16 +1771,16 @@ function getBotNavigationTarget(origin, desired) {
 }
 
 function getClosestEntryPoint(pos) {
-  const breachables = destructibles.filter((d) => !d.destroyed && (d.type === 'window' || d.type === 'door' || d.type === 'wall'));
+  const breachables = destructibles.filter((d) => !d.destroyed && (d.type === 'door' || d.type === 'wall'));
   if (!breachables.length) return null;
   breachables.sort((a, b) => a.mesh.position.distanceTo(pos) - b.mesh.position.distanceTo(pos));
   return breachables[0];
 }
 
 function getRoleBreachPoint(bot) {
-  const breachables = destructibles.filter((d) => !d.destroyed && (d.type === 'window' || d.type === 'door' || d.type === 'wall'));
+  const breachables = destructibles.filter((d) => !d.destroyed && (d.type === 'door' || d.type === 'wall'));
   if (!breachables.length) return null;
-  const roleBias = bot.role === 'Entry' ? ['door', 'window', 'wall'] : bot.role === 'Support' ? ['wall', 'door', 'window'] : ['window', 'door', 'wall'];
+  const roleBias = bot.role === 'Entry' ? ['door', 'wall'] : bot.role === 'Support' ? ['wall', 'door'] : ['door', 'wall'];
   breachables.sort((a, b) => {
     const apri = roleBias.indexOf(a.type);
     const bpri = roleBias.indexOf(b.type);
@@ -1777,18 +1799,28 @@ function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
   const armSwing = Math.sin(bot.gait + Math.PI * 0.5) * (0.12 + bot.lastMoveSpeed * 0.14);
   const adsBias = hostileVisible ? 1 : 0;
   const crouchBias = (bot.inCover || bot.retreat) ? 1 : 0;
+  const sprintBias = moveAmount > 0.06 && !hostileVisible ? 1 : 0;
 
-  bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, swing * (1 - crouchBias * 0.35), dt * 10);
-  bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -swing * (1 - crouchBias * 0.35), dt * 10);
+  bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, swing * (1 - crouchBias * 0.35) + sprintBias * 0.22, dt * 10);
+  bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -swing * (1 - crouchBias * 0.35) + sprintBias * 0.22, dt * 10);
   bot.leftArm.rotation.x = THREE.MathUtils.lerp(bot.leftArm.rotation.x, -armSwing - adsBias * 0.6 - crouchBias * 0.24 - bot.abilityAnim * 0.55, dt * 10);
   bot.rightArm.rotation.x = THREE.MathUtils.lerp(bot.rightArm.rotation.x, armSwing - 0.2 - adsBias * 0.45 - crouchBias * 0.2 + bot.abilityAnim * 0.45, dt * 10);
 
   bot.lean = THREE.MathUtils.lerp(bot.lean, THREE.MathUtils.clamp(bot.strafeDir * bot.lastMoveSpeed * 0.25, -0.2, 0.2), dt * 6);
   bot.mesh.rotation.z = bot.lean;
-  bot.mesh.position.y = THREE.MathUtils.lerp(bot.mesh.position.y, 1.02 - crouchBias * 0.16 + Math.abs(Math.sin(bot.gait * 2.1)) * 0.03 * bot.lastMoveSpeed, dt * 10);
+  bot.mesh.position.y = THREE.MathUtils.lerp(bot.mesh.position.y, 1.02 - crouchBias * 0.16 + Math.abs(Math.sin(bot.gait * 2.1)) * 0.03 * bot.lastMoveSpeed - sprintBias * 0.04, dt * 10);
   bot.helmet.rotation.y = THREE.MathUtils.lerp(bot.helmet.rotation.y, (aimPoint ? THREE.MathUtils.clamp(Math.sin(bot.gait * 0.5) * 0.12, -0.18, 0.18) : 0) + bot.lean * 0.4, dt * 6);
   bot.abilityRig.rotation.y = THREE.MathUtils.lerp(bot.abilityRig.rotation.y, bot.gait * 0.08 + bot.abilityAnim * 1.4, dt * 9);
   bot.abilityRig.position.y = THREE.MathUtils.lerp(bot.abilityRig.position.y, 0.38 + Math.sin(bot.gait * 1.8) * 0.03 + bot.abilityAnim * 0.08, dt * 9);
+
+  if (aimPoint) {
+    const toAim = aimPoint.clone().sub(bot.mesh.position);
+    toAim.y = 0;
+    if (toAim.lengthSq() > 0.001) {
+      const aimYaw = Math.atan2(toAim.x, toAim.z);
+      bot.mesh.rotation.y = THREE.MathUtils.lerp(bot.mesh.rotation.y, aimYaw, dt * (hostileVisible ? 14 : 8));
+    }
+  }
 
   if (bot.gunMesh && aimPoint) {
     bot.gunMesh.lookAt(aimPoint.clone().setY(1.22));
@@ -1848,11 +1880,11 @@ function triggerBotAbility(bot, visibleEnemy) {
     return false;
   }
   if (bot.ability === 'armorTrap' || bot.ability === 'ambushMine') {
-    const trap = box(0.14, 0.08, 0.14, bot.ability === 'armorTrap' ? 0xb883ff : 0xff8f73, { emissive: 0x331818, emissiveIntensity: 0.4 });
-    trap.position.copy(myPos).setY(0.08);
+    const trap = box(0.22, 0.1, 0.22, bot.ability === 'armorTrap' ? 0xb883ff : 0xff8f73, { emissive: 0x5a1313, emissiveIntensity: 0.65 });
+    trap.position.copy(myPos).setY(0.09);
     trap.userData.temp = true;
     world.add(trap);
-    gadgets.push({ type: 'tripwire', team: bot.team, mesh: trap, hp: 22, temp: true });
+    gadgets.push({ type: 'tripwire', team: bot.team, mesh: trap, hp: 22, temp: true, lethal: true });
     spawnAbilityBurst(myPos.clone().setY(0.35), 0xff8d73, 4, 0.7);
     addFeed(`${bot.codename} set ${bot.abilityLabel}`);
     return true;
@@ -1920,11 +1952,6 @@ function botThink(bot, dt) {
     settle.y = 0;
     if (settle.lengthSq() > 0.08) bot.mesh.position.addScaledVector(settle.normalize(), dt * 1.25);
 
-    const prepWindow = destructibles.find(d => !d.destroyed && d.type === 'window' && d.mesh.position.distanceTo(bot.mesh.position) < 4.2);
-    if (prepWindow) {
-      prepWindow.hp = Math.min(58, prepWindow.hp + dt * 10);
-      prepWindow.mesh.material.opacity = Math.min(0.82, prepWindow.mesh.material.opacity + dt * 0.14);
-    }
 
     const prepDoor = destructibles.find(d => !d.destroyed && d.type === 'door' && d.mesh.position.distanceTo(bot.mesh.position) < 3.2);
     if (prepDoor) {
@@ -1953,7 +1980,7 @@ function botThink(bot, dt) {
           t.position.copy(point);
           t.userData.temp = true;
           world.add(t);
-          gadgets.push({ type: 'tripwire', team: 'def', mesh: t, hp: 25, temp: true });
+          gadgets.push({ type: 'tripwire', team: 'def', mesh: t, hp: 25, temp: true, lethal: true });
           addFeed(`${bot.role} AI set a trap`);
         }
         bot.setupDone = true;
@@ -2029,7 +2056,6 @@ function botThink(bot, dt) {
   let target = state.objectivePos.clone().add(bot.tacticalOffset || new THREE.Vector3());
   let aimPoint = visible ? (visible.mesh ? visible.mesh.position.clone() : visible.pos.clone()) : null;
   const activeBreach = getRoleBreachPoint(bot) || getClosestEntryPoint(myPos);
-  const attackWindows = destructibles.filter(d => !d.destroyed && d.type === 'window');
   const squadMates = bots.filter((ally) => ally !== bot && !ally.dead && ally.team === bot.team);
 
   if (visible && bot.hp < 65) {
@@ -2090,7 +2116,7 @@ function botThink(bot, dt) {
       bot.task = 'rotate';
       target = activeBreach.mesh.position.clone().add(new THREE.Vector3(bot.spawnIndex % 2 ? 1.5 : -1.5, 0, 1.2));
     }
-  } else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget && !attackWindows.length) {
+  } else if (bot.team === 'atk' && bot.role === 'Fragger' && bot.pingTarget) {
     const flank = bot.pingTarget.clone().add(new THREE.Vector3((bot.spawnIndex % 2 ? 1 : -1) * 2.4, 0, 1.4));
     target = flank;
     bot.task = 'flank';
@@ -2229,18 +2255,15 @@ function botThink(bot, dt) {
   if (bot.team === 'atk' && bot.hasBomb && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 2.2) {
     bot.plant = (bot.plant || 0) + dt;
     state.plantingProgress = Math.max(state.plantingProgress, Math.min(1, bot.plant / 3));
-    state.plantingActor = bot.team === player.team ? `${bot.name}` : 'Enemy';
+    state.plantingActor = bot.team === player.team ? bot.codename : 'Enemy';
     if (bot.plant > 3) {
       state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant;
       addFeed('Enemy planter armed Rift Charge');
     }
   }
 
-  gadgets.filter(g => g.type === 'tripwire').forEach(t => {
-    if (t.mesh.position.distanceTo(myPos) < 0.7 && bot.team === 'atk') {
-      bot.hp -= 18; t.mesh.visible = false; t.type = 'spent';
-      myPos.add(new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2));
-    }
+  gadgets.forEach((g) => {
+    if (g.type === 'tripwire') applyTrapDamageToBot(bot, g, 56);
   });
 
   if (bot.hp <= 0) onBotEliminated(bot);
@@ -2296,8 +2319,8 @@ function resetRound() {
     d.mesh.visible = true;
     if (d.spawnPos) d.mesh.position.copy(d.spawnPos);
     if (d.spawnRot) d.mesh.rotation.copy(d.spawnRot);
-    d.mesh.material.opacity = (d.type === 'glass' || d.type === 'window') ? 0.5 : 1;
-    d.hp = (d.type === 'glass' || d.type === 'window') ? 32 : (d.type === 'door' ? 80 : 70);
+    d.mesh.material.opacity = d.type === 'glass' ? 0.5 : 1;
+    d.hp = d.type === 'glass' ? 32 : (d.type === 'door' ? 80 : 70);
     d.bounds.setFromObject(d.mesh);
   });
   world.children.filter(o => o.userData.temp).forEach(o => world.remove(o));
@@ -2503,6 +2526,10 @@ function tick() {
     gamepadUpdate();
     updatePlayer(dt);
     bots.forEach(b => { b.suppressing = Math.max(0, b.suppressing - dt); botThink(b, dt); });
+    gadgets.forEach((g) => {
+      if (g.type === 'tripwire') applyTrapDamageToPlayer(g, g.lethal ? 62 : 42);
+    });
+    autoRecoverDroppedBomb();
     updateBombVisuals(dt);
 
     gadgets.forEach(g => {
@@ -2595,6 +2622,8 @@ function tick() {
     }
   }
   if (damageVignette) damageVignette.style.opacity = (0.45 + (1 - Math.max(0, player.hp) / 100) * 0.35).toFixed(2);
+  state.trapFx = Math.max(0, state.trapFx - dt * 1.7);
+  if (trapOverlay) trapOverlay.style.opacity = (state.trapFx * 0.95).toFixed(2);
 
   if (!player.alive) {
     player.deathAnim = Math.min(1.3, (player.deathAnim || 0) + dt * 1.5);
