@@ -1400,14 +1400,16 @@ function makeBot(team, operator, pos, spawnIndex = 0) {
     gait: Math.random() * Math.PI * 2, lean: 0, task: 'hold',
     cornerIndex: spawnIndex % roomClearCorners.length, cornerLookTimer: 0.5 + Math.random() * 1.2,
     scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0, hearing: 1.1 + Math.random() * 0.4,
-    squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2, abilityCd: 4 + Math.random() * 5, abilityAnim: 0,
+    squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2, abilityCd: 2.6 + Math.random() * 2.8, abilityAnim: 0,
     patrolIndex: spawnIndex % defenderPatrolPoints.length, nameplate, abilityRig, speech,
     hasBomb: false, deathAnim: 0, deathTilt: 0, deathDir: new THREE.Vector3(),
     reinforcementsLeft: team === 'def' ? 2 : 0, reinforcingTarget: null, reinforceTimer: 0,
     idleScanPhase: Math.random() * Math.PI * 2, recoilKick: 0,
     lastTaskCallout: '', lastTaskTarget: null, nextTaskCalloutAt: 0,
     routeBias: ((spawnIndex % 2) ? 1 : -1) * (0.9 + Math.random() * 0.7),
-    tacticalOffset: new THREE.Vector3((Math.random() - 0.5) * 1.9, 0, (Math.random() - 0.5) * 1.9)
+    tacticalOffset: new THREE.Vector3((Math.random() - 0.5) * 1.9, 0, (Math.random() - 0.5) * 1.9),
+    objectivePressure: 0.85 + Math.random() * 0.5,
+    idleJitterPhase: Math.random() * Math.PI * 2
   };
 }
 
@@ -2374,19 +2376,20 @@ function botThink(bot, dt) {
   const nearbyEnemy = visible || enemy.find((e) => (e.mesh ? e.mesh.position : e.pos).distanceTo(myPos) < 7.5);
   const allyLow = bots.some((ally) => !ally.dead && ally.team === bot.team && ally.hp < 72 && ally.mesh.position.distanceTo(myPos) < 6);
   const abilityUrgency = (bot.ability === 'medStim' && allyLow ? 0.95 : 0)
-    + ((bot.ability === 'armorTrap' || bot.ability === 'ambushMine') && !visible && bot.team === 'def' && bot.alert > 0.35 ? 0.6 : 0)
-    + ((bot.ability === 'hardBreach' || bot.ability === 'shockBreach') && bot.team === 'atk' && state.phase === 'action' && !state.bombPlanted ? 0.7 : 0)
-    + ((bot.ability === 'jamBurst' || bot.ability === 'scannerPulse' || bot.ability === 'intelPing') && !!nearbyEnemy ? 0.72 : 0);
-  if (bot.abilityCd <= 0 && abilityUrgency > 0.55) {
-    bot.abilityUseDelay = Math.max(0, (bot.abilityUseDelay ?? (0.2 + Math.random() * 0.55)) - dt * (0.8 + abilityUrgency));
-    if (bot.abilityUseDelay <= 0 && Math.random() < Math.min(0.94, 0.48 + bot.discipline * 0.38 + abilityUrgency * 0.25)) {
+    + ((bot.ability === 'armorTrap' || bot.ability === 'ambushMine') && !visible && bot.team === 'def' && bot.alert > 0.25 ? 0.8 : 0)
+    + ((bot.ability === 'hardBreach' || bot.ability === 'shockBreach') && bot.team === 'atk' && state.phase === 'action' && !state.bombPlanted ? 0.9 : 0)
+    + ((bot.ability === 'jamBurst' || bot.ability === 'scannerPulse' || bot.ability === 'intelPing') && !!nearbyEnemy ? 0.9 : 0)
+    + ((bot.team === 'atk' && state.atkObjectiveKnown && !state.bombPlanted) ? 0.2 : 0);
+  if (bot.abilityCd <= 0 && abilityUrgency > 0.45) {
+    bot.abilityUseDelay = Math.max(0, (bot.abilityUseDelay ?? (0.08 + Math.random() * 0.38)) - dt * (1 + abilityUrgency));
+    if (bot.abilityUseDelay <= 0 && Math.random() < Math.min(0.97, 0.56 + bot.discipline * 0.34 + abilityUrgency * 0.28)) {
       if (triggerBotAbility(bot, nearbyEnemy)) {
-        bot.abilityCd = 7.5 + Math.random() * 4.8;
-        bot.abilityUseDelay = 0.3 + Math.random() * 0.8;
+        bot.abilityCd = 5.6 + Math.random() * 3.2;
+        bot.abilityUseDelay = 0.12 + Math.random() * 0.5;
       }
     }
   } else {
-    bot.abilityUseDelay = 0.25 + Math.random() * 0.7;
+    bot.abilityUseDelay = 0.1 + Math.random() * 0.45;
   }
 
   if (bot.team === 'atk' && !bot.hasBomb) tryPickupDroppedBomb(bot, myPos);
@@ -2471,8 +2474,19 @@ function botThink(bot, dt) {
     if (!visible) aimPoint = flank;
   }
 
-  if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter' && !bot.hasBomb && !activeBreach) {
-    target = state.objectivePos.clone().add(attackerExecuteOffsets[bot.role] || new THREE.Vector3(0, 0, 2));
+  if (bot.team === 'atk' && state.atkObjectiveKnown && !state.bombPlanted) {
+    const executeOffset = attackerExecuteOffsets[bot.role] || new THREE.Vector3(0, 0, 2);
+    const aroundSite = state.objectivePos.clone().add(executeOffset);
+    if (!bot.hasBomb && bot.role !== 'Planter') {
+      target = aroundSite;
+      bot.task = visible ? 'fight' : 'take site';
+    }
+    if (state.bombCarrier && state.bombCarrier !== bot && state.bombCarrier.team === 'atk') {
+      const carrierPos = state.bombCarrier === player ? player.pos : state.bombCarrier.mesh.position;
+      const supportOffset = new THREE.Vector3(bot.spawnIndex % 2 ? 1.5 : -1.5, 0, 1.4 + (bot.spawnIndex % 3) * 0.4);
+      target = carrierPos.clone().add(supportOffset).lerp(aroundSite, 0.45);
+      bot.task = 'escort';
+    }
   }
 
   if (bot.team === 'atk' && bot.hasBomb && !state.bombPlanted) {
@@ -2499,7 +2513,7 @@ function botThink(bot, dt) {
     if (!aimPoint) aimPoint = bot.lastHeard.clone();
     bot.task = bot.team === 'def' ? 'investigate' : 'hunt';
   }
-  if (bot.team === 'def' && state.bombPlanted && bot.alert <= 0.8) {
+  if (bot.team === 'def' && state.bombPlanted) {
     target = state.objectivePos.clone().add(new THREE.Vector3((bot.spawnIndex - 1.5) * 0.95, 0, 2.2));
     bot.task = 'retake';
   }
@@ -2525,9 +2539,10 @@ function botThink(bot, dt) {
   const navTarget = getBotNavigationTarget(myPos, target);
   const move = navTarget.clone().sub(myPos); move.y = 0;
   let moveAmount = 0;
-  if (move.length() > 0.35) {
+  if (move.length() > 0.18) {
     move.normalize();
-    const moveSpeed = (bot.team === 'atk' ? 2.7 : 2.35) * (bot.inCover ? 0.86 : 1) * (bot.retreat ? 1.05 : 1);
+    const pressureBoost = (state.phase === 'action' && !state.bombPlanted) ? (1 + bot.objectivePressure * 0.08) : 1;
+    const moveSpeed = (bot.team === 'atk' ? 2.7 : 2.35) * (bot.inCover ? 0.86 : 1) * (bot.retreat ? 1.05 : 1) * pressureBoost;
     const step = move.clone().multiplyScalar(moveSpeed * dt);
     moveAmount = step.length();
     const next = myPos.clone().add(step);
@@ -2540,6 +2555,14 @@ function botThink(bot, dt) {
     }
     const yawTarget = Math.atan2(move.x, move.z);
     bot.mesh.rotation.y = THREE.MathUtils.lerp(bot.mesh.rotation.y, yawTarget, dt * 8);
+  }
+
+  if (!visible && moveAmount < 0.02) {
+    bot.idleJitterPhase = (bot.idleJitterPhase || 0) + dt * (1.8 + bot.objectivePressure * 0.5);
+    const jitter = new THREE.Vector3(Math.sin(bot.idleJitterPhase), 0, Math.cos(bot.idleJitterPhase + bot.spawnIndex));
+    const jitterStep = jitter.multiplyScalar(dt * 0.22);
+    const probe = myPos.clone().add(jitterStep);
+    if (!isBlockedPoint(probe)) myPos.copy(probe);
   }
 
   if (visible) {
