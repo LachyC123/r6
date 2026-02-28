@@ -113,7 +113,9 @@ const state = {
   atkObjectiveKnown: false,
   plantingProgress: 0,
   plantingActor: '',
-  trapFx: 0
+  trapFx: 0,
+  spectatorTarget: null,
+  spectatorIndex: 0
 };
 
 const input = { keys: {}, mouseDx: 0, mouseDy: 0, ads: false, fire: false, lean: 0, melee: false };
@@ -1261,7 +1263,9 @@ const player = {
   hp: 100, pos: new THREE.Vector3(-16, 1.7, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   grounded: true, crouch: false, sprint: false, ammo: 30, reserve: 90, recoil: 0, spread: 0.015,
   breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, abilityCd: 0, alive: true, hasBomb: false,
-  deathAnim: 0, deathTilt: 0, deathCause: ''
+  deathAnim: 0, deathTilt: 0, deathCause: '',
+  breachAnim: 0,
+  spectating: false
 };
 camera.position.copy(player.pos);
 
@@ -1506,9 +1510,50 @@ function onPlayerEliminated(reason = 'You were neutralized') {
   player.deathAnim = 0.01;
   player.deathTilt = (Math.random() > 0.5 ? 1 : -1) * 0.35;
   player.deathCause = reason;
+  player.spectating = true;
+  state.spectatorTarget = null;
+  cycleSpectatorTarget(1);
   if (player.hasBomb) dropBombFrom(player, player.pos);
   showDeathBanner('You are down');
   addFeed(reason);
+}
+
+function getSpectatorCandidates() {
+  return bots.filter((b) => !b.dead && b.team === player.team);
+}
+
+function cycleSpectatorTarget(direction = 1) {
+  const teammates = getSpectatorCandidates();
+  if (!teammates.length) {
+    state.spectatorTarget = null;
+    return null;
+  }
+  const currentIndex = state.spectatorTarget ? teammates.indexOf(state.spectatorTarget) : -1;
+  const nextIndex = currentIndex >= 0
+    ? (currentIndex + direction + teammates.length) % teammates.length
+    : (state.spectatorIndex % teammates.length + teammates.length) % teammates.length;
+  state.spectatorIndex = nextIndex;
+  state.spectatorTarget = teammates[nextIndex];
+  return state.spectatorTarget;
+}
+
+function updateSpectatorCamera(dt) {
+  if (!player.spectating) return false;
+  const target = (state.spectatorTarget && !state.spectatorTarget.dead && state.spectatorTarget.team === player.team)
+    ? state.spectatorTarget
+    : cycleSpectatorTarget(1);
+  if (!target) return false;
+
+  const yaw = target.mesh.rotation.y;
+  const followOffset = new THREE.Vector3(Math.sin(yaw) * 0.95, 0.68, Math.cos(yaw) * 0.95);
+  const desiredPos = target.mesh.position.clone().add(followOffset);
+  camera.position.lerp(desiredPos, THREE.MathUtils.clamp(dt * 5.6, 0, 1));
+
+  const aimOffset = new THREE.Vector3(Math.sin(yaw) * 3.8, 0.95, Math.cos(yaw) * 3.8);
+  const lookAt = target.mesh.position.clone().add(aimOffset);
+  camera.lookAt(lookAt);
+  player.yaw = yaw;
+  return true;
 }
 
 function assignRoundBombCarrier() {
@@ -1624,7 +1669,11 @@ function updateUI() {
   const atkAlive = (player.team === 'atk' && player.alive ? 1 : 0) + bots.filter((b) => b.team === 'atk' && !b.dead).length;
   const defAlive = (player.team === 'def' && player.alive ? 1 : 0) + bots.filter((b) => b.team === 'def' && !b.dead).length;
   ui.aliveCount.textContent = `ALIVE ${atkAlive}v${defAlive}`;
-  const heading = THREE.MathUtils.radToDeg(player.yaw);
+  const spectatingTarget = (!player.alive && player.spectating && state.spectatorTarget && !state.spectatorTarget.dead)
+    ? state.spectatorTarget
+    : null;
+  const headingSource = spectatingTarget ? spectatingTarget.mesh.rotation.y : player.yaw;
+  const heading = THREE.MathUtils.radToDeg(headingSource);
   ui.compassBar.textContent = `${getCompassLabel(heading)} · ${String(Math.round((heading + 360) % 360)).padStart(3, '0')}°`;
   ui.health.textContent = `HP ${Math.max(0, Math.floor(player.hp))}`;
   if (!player.alive && ui.health) ui.health.textContent += ' · DOWN';
@@ -1634,6 +1683,11 @@ function updateUI() {
   if (ui.operatorPlate) ui.operatorPlate.textContent = `OPERATOR: ${player.codename.toUpperCase()} · ${player.abilityLabel.toUpperCase()}`;
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
   ui.gadgetB.textContent = `[F] ${player.abilityLabel}: ${player.abilityCd <= 0 ? 'Ready' : player.abilityCd.toFixed(1) + 's'}`;
+  if (ui.hint) {
+    ui.hint.textContent = !player.alive
+      ? 'SPECTATOR: [ / ] or ← / → to cycle teammates while round continues'
+      : 'LMB fire · RMB ADS · Q/E lean · V melee breach · watch for defender traps';
+  }
   if (ui.plantStatus) {
     ui.plantStatus.classList.remove('planting', 'armed');
     if (state.bombPlanted) {
@@ -1649,7 +1703,10 @@ function updateUI() {
       ui.plantStatus.classList.add('hidden');
     }
   }
-  if (state.phase === 'prep') {
+  if (!player.alive && player.spectating) {
+    const targetName = state.spectatorTarget ? state.spectatorTarget.codename.toUpperCase() : 'NO TEAMMATES';
+    ui.objective.innerHTML = `<span class="warn">Spectating ${targetName}</span> · Stay in the round and call plays.`;
+  } else if (state.phase === 'prep') {
     ui.objective.innerHTML = player.team === 'atk'
       ? `Prep Phase: Attackers are locked on drones and must scout from outside to locate Bomb Room.${state.atkObjectiveKnown ? ' <span class="ok">Objective found.</span>' : ''}`
       : 'Prep Phase: Defenders barricade, place traps, and fortify the site before action starts.';
@@ -1793,6 +1850,29 @@ function destroyDestructible(d) {
   beep(90, 0.15, 'sawtooth', 0.05);
 }
 
+function triggerWallBreachFx(d, source = 'breach') {
+  if (!d || d.destroyed || d.type !== 'wall') return;
+  const burstCount = source === 'breach' || source === 'ability' ? 9 : 4;
+  for (let i = 0; i < burstCount; i++) {
+    const puff = box(0.1 + Math.random() * 0.1, 0.1 + Math.random() * 0.08, 0.1 + Math.random() * 0.1, 0xa7a9ae, {
+      emissive: 0x42464f,
+      emissiveIntensity: 0.26,
+      roughness: 0.95,
+      metalness: 0.04
+    });
+    puff.position.copy(d.mesh.position).add(new THREE.Vector3((Math.random() - 0.5) * 1.4, Math.random() * 1.6, (Math.random() - 0.5) * 1.4));
+    world.add(puff);
+    bullets.push({ mesh: puff, vel: new THREE.Vector3((Math.random() - 0.5) * 2.8, 0.4 + Math.random() * 1.8, (Math.random() - 0.5) * 2.8), life: 0.45 + Math.random() * 0.35 });
+  }
+  d.breachFx = 0.3;
+  if (source === 'breach' || source === 'ability') {
+    d.mesh.scale.multiplyScalar(1.012);
+    setTimeout(() => {
+      if (!d.destroyed) d.mesh.scale.set(1, 1, 1);
+    }, 80);
+  }
+}
+
 function placeBreachCharge() {
   if (player.breachCharges <= 0) return;
   const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -1800,6 +1880,7 @@ function placeBreachCharge() {
   const hit = raycaster.intersectObjects(destructibles.filter(d => !d.destroyed && (d.type === 'door' || d.type === 'wall')).map(d => d.mesh))[0];
   if (!hit || hit.distance > 2.2) return;
   player.breachCharges--;
+  player.breachAnim = 0.32;
   const charge = box(0.2, 0.2, 0.08, 0xe6bd78);
   charge.position.copy(hit.point).add(hit.face.normal.clone().multiplyScalar(0.05));
   world.add(charge);
@@ -1999,6 +2080,7 @@ function applyDestructibleDamage(d, amount, source = 'bullet') {
     ? (source === 'breach' || source === 'ability' ? 1 : source === 'melee' ? 0.2 : 0.28)
     : 1;
   d.hp -= amount * reinforceScale;
+  if (d.type === 'wall') triggerWallBreachFx(d, source);
   if (d.hp <= 0 && !d.destroyed) destroyDestructible(d);
 }
 
@@ -2335,6 +2417,15 @@ function botThink(bot, dt) {
       target = staging;
       aimPoint = activeBreach.mesh.position.clone().setY(activeBreach.type === 'door' ? 1.05 : 1.45);
       if (myPos.distanceTo(activeBreach.mesh.position) < 5.1) {
+        if (activeBreach.type === 'wall' && !activeBreach.reinforced && (bot.role === 'Entry' || bot.role === 'Support')) {
+          bot.gadgetCd -= dt;
+          if (bot.gadgetCd <= 0) {
+            applyDestructibleDamage(activeBreach, 46, 'breach');
+            addFeed(`${bot.codename} used breach utility on soft wall`);
+            bot.gadgetCd = 2.2 + Math.random() * 1.1;
+            bot.abilityAnim = 1;
+          }
+        }
         bot.shootTimer -= dt;
         if (bot.shootTimer <= 0) {
           shoot(bot, aimPoint.clone().sub(myPos).normalize(), bot.role === 'Support' ? 32 : 24, 0.03);
@@ -2569,6 +2660,9 @@ function resetRound() {
   player.abilityCd = 0;
   player.deathAnim = 0;
   player.deathCause = '';
+  player.spectating = false;
+  state.spectatorTarget = null;
+  state.spectatorIndex = 0;
   if (ui.deathBanner) ui.deathBanner.classList.remove('show');
   deployDrone(false);
   camera.position.copy(player.pos);
@@ -2583,6 +2677,8 @@ function resetRound() {
     if (d.reinforcedSkin) d.reinforcedSkin.visible = false;
     d.maxHp = d.type === 'door' ? 80 : (d.type === 'wall' ? 70 : d.maxHp || 70);
     d.hp = d.type === 'glass' ? 32 : d.maxHp;
+    d.breachFx = 0;
+    d.mesh.scale.set(1, 1, 1);
     d.bounds.setFromObject(d.mesh);
   });
   world.children.filter(o => o.userData.temp).forEach(o => world.remove(o));
@@ -2606,6 +2702,8 @@ window.addEventListener('keydown', (e) => {
   input.keys[e.code] = true;
   if (e.code === 'KeyQ') input.lean = -1;
   if (e.code === 'KeyE') input.lean = 1;
+  if (!player.alive && (e.code === 'ArrowRight' || e.code === 'BracketRight')) cycleSpectatorTarget(1);
+  if (!player.alive && (e.code === 'ArrowLeft' || e.code === 'BracketLeft')) cycleSpectatorTarget(-1);
   if (e.code === 'Digit5') deployDrone(true);
   if (e.code === 'Digit6' && !(state.phase === 'prep' && player.team === 'atk')) cycleCams();
   if (e.code === 'KeyG') placeBreachCharge();
@@ -2714,15 +2812,17 @@ function updatePlayer(dt) {
   const strafeBlend = (input.keys['KeyD'] ? 1 : 0) - (input.keys['KeyA'] ? 1 : 0);
   const forwardBlend = (input.keys['KeyW'] ? 1 : 0) - (input.keys['KeyS'] ? 1 : 0);
   const sprintPose = player.sprint ? 1 : 0;
-  const targetGunX = input.ads ? 0.06 : 0.33;
-  const targetGunY = input.ads ? -0.2 : -0.29;
-  const targetGunZ = input.ads ? -0.24 : -0.45;
+  const breachPose = THREE.MathUtils.clamp(player.breachAnim * 3.2, 0, 1);
+  const targetGunX = (input.ads ? 0.06 : 0.33) - breachPose * 0.15;
+  const targetGunY = (input.ads ? -0.2 : -0.29) - breachPose * 0.04;
+  const targetGunZ = (input.ads ? -0.24 : -0.45) + breachPose * 0.12;
   weaponRig.position.x = THREE.MathUtils.lerp(weaponRig.position.x, targetGunX + strafeBlend * 0.016, dt * 11);
   weaponRig.position.y = THREE.MathUtils.lerp(weaponRig.position.y, targetGunY + bob - sprintPose * 0.06, dt * 11);
   weaponRig.position.z = THREE.MathUtils.lerp(weaponRig.position.z, targetGunZ + forwardBlend * 0.012 + sprintPose * 0.04, dt * 11);
-  weaponRig.rotation.y = THREE.MathUtils.lerp(weaponRig.rotation.y, (input.ads ? 0 : -0.2) + strafeBlend * 0.07, dt * 10);
-  weaponRig.rotation.x = THREE.MathUtils.lerp(weaponRig.rotation.x, player.recoil * 4 + bob * 1.8 + sprintPose * 0.18, dt * 12);
-  weaponRig.rotation.z = THREE.MathUtils.lerp(weaponRig.rotation.z, input.lean * 0.06 - strafeBlend * 0.05, dt * 12);
+  weaponRig.rotation.y = THREE.MathUtils.lerp(weaponRig.rotation.y, (input.ads ? 0 : -0.2) + strafeBlend * 0.07 + breachPose * 0.25, dt * 10);
+  weaponRig.rotation.x = THREE.MathUtils.lerp(weaponRig.rotation.x, player.recoil * 4 + bob * 1.8 + sprintPose * 0.18 + breachPose * 0.45, dt * 12);
+  weaponRig.rotation.z = THREE.MathUtils.lerp(weaponRig.rotation.z, input.lean * 0.06 - strafeBlend * 0.05 - breachPose * 0.12, dt * 12);
+  player.breachAnim = Math.max(0, player.breachAnim - dt * 2.7);
 
   shootCd -= dt;
   if (input.fire && shootCd <= 0 && player.ammo > 0) {
@@ -2824,6 +2924,18 @@ function tick() {
     bullets.forEach(b => { b.life -= dt; b.vel.y -= dt * 5; b.mesh.position.addScaledVector(b.vel, dt); if (b.life <= 0) b.mesh.visible = false; });
     for (let i = bullets.length - 1; i >= 0; i--) if (bullets[i].life <= 0) bullets.splice(i, 1);
 
+    destructibles.forEach((d) => {
+      if (d.type !== 'wall' || d.destroyed) return;
+      d.breachFx = Math.max(0, (d.breachFx || 0) - dt * 1.8);
+      if (d.breachFx > 0) {
+        const pulse = 0.22 + d.breachFx * 0.55;
+        d.mesh.material.emissive = new THREE.Color(0x2f2f34);
+        d.mesh.material.emissiveIntensity = pulse;
+      } else {
+        d.mesh.material.emissiveIntensity = 0;
+      }
+    });
+
     rainDrops.forEach((drop) => {
       drop.position.y -= drop.userData.speed * dt;
       if (drop.position.y < 0.12) {
@@ -2888,10 +3000,13 @@ function tick() {
   if (trapOverlay) trapOverlay.style.opacity = (state.trapFx * 0.95).toFixed(2);
 
   if (!player.alive) {
-    player.deathAnim = Math.min(1.3, (player.deathAnim || 0) + dt * 1.5);
-    const fall = THREE.MathUtils.smootherstep(Math.min(player.deathAnim, 1), 0, 1);
-    camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, player.deathTilt || 0.2, dt * 3.2);
-    camera.position.y = THREE.MathUtils.lerp(camera.position.y, player.pos.y - 0.95, fall * 0.35);
+    const hasSpectatorView = updateSpectatorCamera(dt);
+    if (!hasSpectatorView) {
+      player.deathAnim = Math.min(1.3, (player.deathAnim || 0) + dt * 1.5);
+      const fall = THREE.MathUtils.smootherstep(Math.min(player.deathAnim, 1), 0, 1);
+      camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, player.deathTilt || 0.2, dt * 3.2);
+      camera.position.y = THREE.MathUtils.lerp(camera.position.y, player.pos.y - 0.95, fall * 0.35);
+    }
   } else {
     camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, 0, dt * 8);
   }
