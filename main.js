@@ -35,6 +35,7 @@ const ui = {
   feed: document.getElementById('feed'),
   scoreboard: document.getElementById('scoreboard'),
   teamRole: document.getElementById('teamRole'),
+  operatorPlate: document.getElementById('operatorPlate'),
   hint: document.getElementById('hint'),
   mobileControls: document.getElementById('mobileControls'),
   movePad: document.getElementById('movePad'),
@@ -464,16 +465,26 @@ const attackerExecuteOffsets = {
   Support: new THREE.Vector3(0, 0, 3.6)
 };
 
-const operatorDesigns = {
-  Planter: { accent: 0xe2bd62, helmet: 0x546580, visor: 0x6fd8ff, emblem: 0xf6cc74 },
-  Support: { accent: 0x62a3e2, helmet: 0x4d6788, visor: 0x8fe9ff, emblem: 0x74d0ff },
-  Fragger: { accent: 0xd86d5c, helmet: 0x6e4f5c, visor: 0xff9a82, emblem: 0xff9474 },
-  Entry: { accent: 0x7be084, helmet: 0x4e7359, visor: 0x9fffb6, emblem: 0x7cf8b2 },
-  Anchor: { accent: 0xbf7bff, helmet: 0x6e4b7e, visor: 0xd5a5ff, emblem: 0xd29dff },
-  Roamer: { accent: 0xff8f73, helmet: 0x774949, visor: 0xffb7a1, emblem: 0xffaa8d },
-  Intel: { accent: 0x69d7ff, helmet: 0x466f86, visor: 0x9feaff, emblem: 0x7bdfff },
-  Denier: { accent: 0xffd26d, helmet: 0x7c653f, visor: 0xffed9f, emblem: 0xffdf8f }
+const OPERATOR_ROSTERS = {
+  atk: [
+    { codename: 'Wraith', role: 'Entry', ability: 'shockBreach', abilityLabel: 'Shock Breach', accent: 0x7be084, helmet: 0x4e7359, visor: 0x9fffb6, emblem: 0x7cf8b2 },
+    { codename: 'Atlas', role: 'Planter', ability: 'hardBreach', abilityLabel: 'Hard Breach', accent: 0xe2bd62, helmet: 0x546580, visor: 0x6fd8ff, emblem: 0xf6cc74 },
+    { codename: 'Specter', role: 'Fragger', ability: 'scannerPulse', abilityLabel: 'Hunter Pulse', accent: 0xd86d5c, helmet: 0x6e4f5c, visor: 0xff9a82, emblem: 0xff9474 },
+    { codename: 'Relay', role: 'Support', ability: 'intelPing', abilityLabel: 'Data Ping', accent: 0x62a3e2, helmet: 0x4d6788, visor: 0x8fe9ff, emblem: 0x74d0ff }
+  ],
+  def: [
+    { codename: 'Bulwark', role: 'Anchor', ability: 'armorTrap', abilityLabel: 'Razor Trap', accent: 0xbf7bff, helmet: 0x6e4b7e, visor: 0xd5a5ff, emblem: 0xd29dff },
+    { codename: 'Ghost', role: 'Roamer', ability: 'ambushMine', abilityLabel: 'Ambush Mine', accent: 0xff8f73, helmet: 0x774949, visor: 0xffb7a1, emblem: 0xffaa8d },
+    { codename: 'Oracle', role: 'Intel', ability: 'jamBurst', abilityLabel: 'Jam Burst', accent: 0x69d7ff, helmet: 0x466f86, visor: 0x9feaff, emblem: 0x7bdfff },
+    { codename: 'Doc-7', role: 'Denier', ability: 'medStim', abilityLabel: 'Stim Heal', accent: 0xffd26d, helmet: 0x7c653f, visor: 0xffed9f, emblem: 0xffdf8f }
+  ]
 };
+
+const operatorDesigns = Object.fromEntries(
+  Object.values(OPERATOR_ROSTERS)
+    .flat()
+    .map((op) => [op.role, op])
+);
 
 const defenderPatrolPoints = [
   new THREE.Vector3(-9.8, 1, -4.8),
@@ -515,6 +526,28 @@ function addFeed(text) {
   el.textContent = text;
   ui.feed.prepend(el);
   while (ui.feed.children.length > 6) ui.feed.lastChild.remove();
+}
+
+function makeNameplate(text, color = '#aee0ff') {
+  const plate = document.createElement('canvas');
+  plate.width = 320;
+  plate.height = 96;
+  const ctx = plate.getContext('2d');
+  ctx.fillStyle = 'rgba(4, 12, 24, 0.72)';
+  ctx.fillRect(0, 16, 320, 56);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 4;
+  ctx.strokeRect(6, 22, 308, 44);
+  ctx.fillStyle = color;
+  ctx.font = '600 28px Inter';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, 160, 54);
+  const tex = new THREE.CanvasTexture(plate);
+  const material = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(1.7, 0.48, 1);
+  sprite.renderOrder = 30;
+  return sprite;
 }
 
 function box(w, h, d, c, opts = {}) {
@@ -820,15 +853,18 @@ function makeBombVisuals() {
 }
 makeBombVisuals();
 
+const playerOperator = OPERATOR_ROSTERS.atk[0];
 const player = {
-  team: 'atk', role: 'Planbreaker', hp: 100, pos: new THREE.Vector3(-16, 1.7, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
+  team: 'atk', role: playerOperator.role, codename: playerOperator.codename, ability: playerOperator.ability, abilityLabel: playerOperator.abilityLabel,
+  hp: 100, pos: new THREE.Vector3(-16, 1.7, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   grounded: true, crouch: false, sprint: false, ammo: 30, reserve: 90, recoil: 0, spread: 0.015,
-  breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, alive: true, hasBomb: false
+  breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, abilityCd: 0, alive: true, hasBomb: false
 };
 camera.position.copy(player.pos);
 
-function makeBot(team, role, pos, spawnIndex = 0) {
-  const design = operatorDesigns[role] || {};
+function makeBot(team, operator, pos, spawnIndex = 0) {
+  const role = operator.role;
+  const design = operator || operatorDesigns[role] || {};
   const m = box(0.76, 1.16, 0.52, team === 'atk' ? 0x2f435b : 0x4e2d2d, {
     roughness: 0.58,
     metalness: 0.34,
@@ -903,6 +939,19 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   roleStripe.position.set(0, -0.14, -0.31);
   m.add(roleStripe);
 
+  const abilityRig = box(0.2, 0.2, 0.2, design.emblem || 0x7fc4ff, {
+    roughness: 0.24,
+    metalness: 0.45,
+    emissive: design.accent || 0x3d7bc7,
+    emissiveIntensity: 0.5
+  });
+  abilityRig.position.set(0, 0.38, 0.3);
+  m.add(abilityRig);
+
+  const nameplate = makeNameplate(`${design.codename || role} · ${role}`, team === 'atk' ? '#8fd0ff' : '#ffae99');
+  nameplate.position.set(0, 1.45, 0);
+  m.add(nameplate);
+
   const outline = box(0.92, 1.96, 0.92, team === 'atk' ? 0x62bcff : 0xff7777, {
     roughness: 0.2,
     metalness: 0,
@@ -921,7 +970,7 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   weapon.gunRoot.position.set(0, 0.22, -0.36);
   m.add(weapon.gunRoot);
   return {
-    team, role, mesh: m, hp: 100, armor: team === 'def' ? 20 : 10, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
+    team, role, codename: design.codename || role, ability: design.ability || (team === 'atk' ? 'hardBreach' : 'armorTrap'), abilityLabel: design.abilityLabel || 'Utility', mesh: m, hp: 100, armor: team === 'def' ? 20 : 10, targetNode: null, alert: 0, reaction: 0.2 + Math.random() * 0.5,
     shootTimer: 0, state: 'hold', pingTarget: null, retreat: false, lastHeard: null, dead: false, gadgetCd: 8 + Math.random() * 4,
     setupDone: false, spawnIndex, dronePhase: false, objectiveKnown: false, gunMesh: weapon.gunRoot, gunMuzzle: weapon.muzzle,
     strafeDir: Math.random() > 0.5 ? 1 : -1, strafeTimer: 0.5 + Math.random() * 0.8,
@@ -930,15 +979,15 @@ function makeBot(team, role, pos, spawnIndex = 0) {
     gait: Math.random() * Math.PI * 2, lean: 0, task: 'hold',
     cornerIndex: spawnIndex % roomClearCorners.length, cornerLookTimer: 0.5 + Math.random() * 1.2,
     scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0, hearing: 1.1 + Math.random() * 0.4,
-    squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2,
-    patrolIndex: spawnIndex % defenderPatrolPoints.length,
+    squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2, abilityCd: 4 + Math.random() * 5, abilityAnim: 0,
+    patrolIndex: spawnIndex % defenderPatrolPoints.length, nameplate, abilityRig,
     hasBomb: false
   };
 }
 
 function entityLabel(entity) {
   if (!entity) return 'Unknown';
-  return entity === player ? 'You' : entity.role;
+  return entity === player ? `You/${player.codename}` : `${entity.codename || entity.role}`;
 }
 
 function setBombCarrier(entity, announce = true) {
@@ -974,7 +1023,7 @@ function onBotEliminated(bot, killerLabel, hitPos = null) {
   bot.dead = true;
   bot.mesh.visible = false;
   if (bot.hasBomb) dropBombFrom(bot, bot.mesh.position);
-  if (killerLabel) addFeed(`${killerLabel} eliminated ${bot.role} at ${getAreaNameFromPos(hitPos || bot.mesh.position).toUpperCase()}`);
+  if (killerLabel) addFeed(`${killerLabel} eliminated ${bot.codename} at ${getAreaNameFromPos(hitPos || bot.mesh.position).toUpperCase()}`);
 }
 
 function onPlayerEliminated(reason = 'You were neutralized') {
@@ -1034,11 +1083,9 @@ function spawnTeams() {
   teammateOutlines.forEach((entry) => world.remove(entry.mesh));
   bots.length = 0;
   teammateOutlines.length = 0;
-  const atkRoles = ['Planter', 'Support', 'Fragger', 'Entry'];
-  const defRoles = ['Anchor', 'Roamer', 'Intel', 'Denier'];
-  for (let i = 0; i < atkRoles.length; i++) {
-    bots.push(makeBot('atk', atkRoles[i], teamSpawns.atk[i].clone(), i));
-    bots.push(makeBot('def', defRoles[i], teamSpawns.def[i].clone(), i));
+  for (let i = 0; i < OPERATOR_ROSTERS.atk.length; i++) {
+    bots.push(makeBot('atk', OPERATOR_ROSTERS.atk[i], teamSpawns.atk[i].clone(), i));
+    bots.push(makeBot('def', OPERATOR_ROSTERS.def[i], teamSpawns.def[i].clone(), i));
   }
 }
 spawnTeams();
@@ -1100,8 +1147,9 @@ function updateUI() {
   ui.ammo.textContent = `AMMO ${player.ammo} / ${player.reserve}`;
   ui.stance.textContent = player.crouch ? 'CROUCH' : (player.sprint ? 'SPRINT' : 'STAND');
   ui.teamRole.textContent = `${player.team === 'atk' ? 'ATTACKER' : 'DEFENDER'} · ${player.role.toUpperCase()} · ${getPlayerArea()}`;
+  if (ui.operatorPlate) ui.operatorPlate.textContent = `OPERATOR: ${player.codename.toUpperCase()} · ${player.abilityLabel.toUpperCase()}`;
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
-  ui.gadgetB.textContent = `[F] Scout Pulse: ${player.pulseCd <= 0 ? 'Ready' : player.pulseCd.toFixed(1) + 's'}`;
+  ui.gadgetB.textContent = `[F] ${player.abilityLabel}: ${player.abilityCd <= 0 ? 'Ready' : player.abilityCd.toFixed(1) + 's'}`;
   if (state.phase === 'prep') {
     ui.objective.innerHTML = player.team === 'atk'
       ? `Prep Phase: Attackers are locked on drones and must scout from outside to locate Bomb Room.${state.atkObjectiveKnown ? ' <span class="ok">Objective found.</span>' : ''}`
@@ -1215,15 +1263,25 @@ function placeBreachCharge() {
 }
 
 function pulseScan() {
-  if (player.pulseCd > 0) return;
-  player.pulseCd = 12;
-  bots.filter(b => !b.dead && b.team === 'def' && b.mesh.position.distanceTo(player.pos) < 12).forEach(b => {
-    b.mesh.material.emissive = new THREE.Color(0xff0033);
-    b.mesh.material.emissiveIntensity = 1.3;
-    setTimeout(() => { if (!b.dead) b.mesh.material.emissiveIntensity = 0; }, 1000);
-  });
-  addPing(player.pos.clone().add(new THREE.Vector3(0, 0.2, -2)), 'atk');
-  addFeed('Scout Pulse emitted');
+  if (player.abilityCd > 0) return;
+  player.abilityCd = 12;
+  if (player.ability === 'shockBreach') {
+    const breachable = destructibles
+      .filter((d) => !d.destroyed && (d.type === 'door' || d.type === 'wall' || d.type === 'window'))
+      .sort((a, b) => a.mesh.position.distanceTo(player.pos) - b.mesh.position.distanceTo(player.pos))[0];
+    if (breachable && breachable.mesh.position.distanceTo(player.pos) < 4.2) {
+      destroyDestructible(breachable);
+      addFeed(`${player.codename} triggered Shock Breach`);
+    }
+  } else {
+    bots.filter(b => !b.dead && b.team === 'def' && b.mesh.position.distanceTo(player.pos) < 14).forEach(b => {
+      b.mesh.material.emissive = new THREE.Color(0xff0033);
+      b.mesh.material.emissiveIntensity = 1.3;
+      setTimeout(() => { if (!b.dead) b.mesh.material.emissiveIntensity = 0; }, 1000);
+    });
+    addPing(player.pos.clone().add(new THREE.Vector3(0, 0.2, -2)), 'atk');
+    addFeed(`${player.codename} emitted ${player.abilityLabel}`);
+  }
   beep(1200, 0.08, 'sine', 0.03);
 }
 
@@ -1398,6 +1456,61 @@ function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
   }
 }
 
+
+function triggerBotAbility(bot, visibleEnemy) {
+  const myPos = bot.mesh.position;
+  bot.abilityAnim = 0.9;
+  if (bot.ability === 'medStim') {
+    const allies = bots.filter((b) => !b.dead && b.team === bot.team && b !== bot && b.hp < 75).sort((a, b) => a.hp - b.hp);
+    const patient = allies[0];
+    if (patient && patient.mesh.position.distanceTo(myPos) < 5.5) {
+      patient.hp = Math.min(100, patient.hp + 28);
+      const healFx = box(0.24, 0.24, 0.24, 0x88ffb2, { emissive: 0x33ff88, emissiveIntensity: 0.9 });
+      healFx.position.copy(patient.mesh.position).setY(1.35);
+      healFx.userData.temp = true;
+      world.add(healFx);
+      impacts.push({ mesh: healFx, t: 0.55 });
+      addFeed(`${bot.codename} healed ${patient.codename}`);
+      return true;
+    }
+    return false;
+  }
+  if (bot.ability === 'jamBurst') {
+    addPing(myPos.clone(), bot.team);
+    gadgets.filter((g) => g.type === 'charge' && g.mesh.position.distanceTo(myPos) < 4.5).forEach((g) => {
+      g.type = 'spent';
+      g.mesh.visible = false;
+    });
+    addFeed(`${bot.codename} emitted Jam Burst`);
+    return true;
+  }
+  if (bot.ability === 'hardBreach' || bot.ability === 'shockBreach') {
+    const breach = destructibles.filter((d) => !d.destroyed).sort((a, b) => a.mesh.position.distanceTo(myPos) - b.mesh.position.distanceTo(myPos))[0];
+    if (breach && breach.mesh.position.distanceTo(myPos) < 4.7) {
+      destroyDestructible(breach);
+      addFeed(`${bot.codename} used ${bot.abilityLabel}`);
+      return true;
+    }
+    return false;
+  }
+  if (bot.ability === 'armorTrap' || bot.ability === 'ambushMine') {
+    const trap = box(0.14, 0.08, 0.14, bot.ability === 'armorTrap' ? 0xb883ff : 0xff8f73, { emissive: 0x331818, emissiveIntensity: 0.4 });
+    trap.position.copy(myPos).setY(0.08);
+    trap.userData.temp = true;
+    world.add(trap);
+    gadgets.push({ type: 'tripwire', team: bot.team, mesh: trap, hp: 22, temp: true });
+    addFeed(`${bot.codename} set ${bot.abilityLabel}`);
+    return true;
+  }
+  if (bot.ability === 'scannerPulse' || bot.ability === 'intelPing') {
+    if (visibleEnemy) bot.pingTarget = (visibleEnemy.mesh ? visibleEnemy.mesh.position : visibleEnemy.pos).clone();
+    addPing((bot.pingTarget || myPos).clone(), bot.team);
+    addFeed(`${bot.codename} marked target`);
+    return true;
+  }
+  return false;
+}
+
 function botThink(bot, dt) {
   if (bot.dead) return;
   if (state.phase === 'prep' && !state.bombPlanted) {
@@ -1484,6 +1597,7 @@ function botThink(bot, dt) {
   }
 
   bot.gadgetCd -= dt;
+  bot.abilityCd = Math.max(0, (bot.abilityCd || 0) - dt);
   bot.calloutCd = Math.max(0, (bot.calloutCd || 0) - dt);
   const enemy = bot.team === 'atk'
     ? [...bots.filter(b => b.team === 'def' && !b.dead), ...(player.team === 'def' && player.alive ? [player] : [])]
@@ -1530,9 +1644,14 @@ function botThink(bot, dt) {
   if (bot.hp < 30) bot.retreat = true;
   if (bot.retreat && bot.hp > 55) bot.retreat = false;
 
-  if ((bot.role === 'Intel' || bot.role === 'Support') && bot.gadgetCd <= 0) {
-    addPing(myPos.clone(), bot.team);
-    bot.gadgetCd = 8 + Math.random() * 4;
+  const nearbyEnemy = visible || enemy.find((e) => (e.mesh ? e.mesh.position : e.pos).distanceTo(myPos) < 7.5);
+  const allyLow = bots.some((ally) => !ally.dead && ally.team === bot.team && ally.hp < 72 && ally.mesh.position.distanceTo(myPos) < 6);
+  const needAbility = (bot.ability === 'medStim' && allyLow)
+    || ((bot.ability === 'armorTrap' || bot.ability === 'ambushMine') && !visible && bot.team === 'def' && bot.alert > 0.35)
+    || ((bot.ability === 'hardBreach' || bot.ability === 'shockBreach') && bot.team === 'atk' && state.phase === 'action' && !state.bombPlanted)
+    || ((bot.ability === 'jamBurst' || bot.ability === 'scannerPulse' || bot.ability === 'intelPing') && !!nearbyEnemy);
+  if (bot.abilityCd <= 0 && needAbility) {
+    if (triggerBotAbility(bot, nearbyEnemy)) bot.abilityCd = 8 + Math.random() * 5;
   }
 
   if (bot.team === 'atk' && !bot.hasBomb) tryPickupDroppedBomb(bot, myPos);
@@ -1704,6 +1823,15 @@ function botThink(bot, dt) {
   }
 
   animateBotPose(bot, dt, moveAmount, aimPoint, !!visible || bot.task === 'breach');
+  bot.abilityAnim = Math.max(0, (bot.abilityAnim || 0) - dt * 1.8);
+  if (bot.abilityRig) {
+    bot.abilityRig.rotation.y += dt * (0.8 + bot.abilityAnim * 8);
+    bot.abilityRig.scale.setScalar(1 + bot.abilityAnim * 0.35);
+    bot.abilityRig.material.emissiveIntensity = 0.45 + bot.abilityAnim * 1.5;
+  }
+  if (bot.nameplate) {
+    bot.nameplate.material.opacity = THREE.MathUtils.clamp(0.5 + bot.abilityAnim * 0.8, 0.35, 1);
+  }
 
   if (bot.team === 'atk' && bot.hasBomb && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 1.8) {
     bot.plant = (bot.plant || 0) + dt;
@@ -1730,7 +1858,7 @@ function endRound(winner) {
   ui.scoreboard.classList.remove('hidden');
   const rows = [player, ...bots].map(e => {
     const isP = e === player;
-    return `<tr><td>${isP ? 'You' : e.role}</td><td>${isP ? player.team : e.team}</td><td>${Math.max(0, Math.floor(e.hp))}</td><td>${(isP ? !player.alive : !e.dead) ? 'Down' : 'Alive'}</td></tr>`;
+    return `<tr><td>${isP ? `You/${player.codename}` : `${e.codename} (${e.role})`}</td><td>${isP ? player.team : e.team}</td><td>${Math.max(0, Math.floor(e.hp))}</td><td>${(isP ? !player.alive : !e.dead) ? 'Down' : 'Alive'}</td></tr>`;
   }).join('');
   ui.scoreboard.innerHTML = `<h2>Round ${state.round} Complete</h2><table><tr><th>Name</th><th>Team</th><th>HP</th><th>Status</th></tr>${rows}</table>`;
 
@@ -1762,6 +1890,7 @@ function resetRound() {
   player.vel.set(0, 0, 0);
   player.ammo = 30;
   player.breachCharges = 2;
+  player.abilityCd = 0;
   deployDrone(false);
   camera.position.copy(player.pos);
   destructibles.forEach(d => {
@@ -1959,7 +2088,7 @@ function tick() {
       if (defAlive === 0) endRound('atk');
     }
 
-    player.pulseCd -= dt;
+    player.abilityCd -= dt;
     player.pingCd -= dt;
     shakeT = Math.max(0, shakeT - dt * 2.4);
 
