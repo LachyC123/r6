@@ -30,6 +30,16 @@ html, body {
   background: radial-gradient(circle at center, transparent 48%, rgba(33, 67, 112, 0.16) 78%, rgba(15, 34, 58, 0.45) 100%);
   transition: opacity 0.2s ease;
 }
+#trapOverlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at center, rgba(255, 90, 90, 0) 26%, rgba(255, 90, 90, 0.08) 56%, rgba(160, 0, 0, 0.45) 100%),
+    repeating-linear-gradient(135deg, rgba(255, 90, 90, 0.16) 0 10px, transparent 10px 20px);
+  opacity: 0;
+  transition: opacity 0.08s linear;
+  mix-blend-mode: screen;
+}
 #scanlines {
   position: absolute;
   inset: 0;
