@@ -92,8 +92,8 @@ scene.add(skyDome);
 
 const state = {
   phase: 'prep',
-  phaseTime: 45,
-  phaseConfig: { prep: 45, action: 165, postPlant: 45 },
+  phaseTime: 10,
+  phaseConfig: { prep: 10, action: 165, postPlant: 45 },
   round: 1,
   maxRounds: 3,
   score: { atk: 0, def: 0 },
@@ -641,7 +641,7 @@ function makeMap() {
   });
 
 
-  [
+  const doorwayDefs = [
     { center: [-3.3, 1, 9.6], size: [1.8, 2.2, 1.2] },
     { center: [4.8, 1, 9.6], size: [1.8, 2.2, 1.2] },
     { center: [-7.2, 1, 2.8], size: [1.2, 2.2, 1.8] },
@@ -649,7 +649,8 @@ function makeMap() {
     { center: [6.6, 1, 2.1], size: [1.2, 2.2, 1.8] },
     { center: [6.6, 1, -5.3], size: [1.2, 2.2, 1.8] },
     { center: [0.1, 1, -9.7], size: [2, 2.2, 1.2] }
-  ].forEach(({ center, size }) => addDoorway(center, size));
+  ];
+  doorwayDefs.forEach(({ center, size }) => addDoorway(center, size));
 
   const bombRoomFloor = box(7.4, 0.12, 7.4, 0x3f5672, { emissive: 0x153052, emissiveIntensity: 0.42, metalness: 0.28, roughness: 0.44 });
   bombRoomFloor.position.set(0.2, 0.03, -11.2);
@@ -748,23 +749,18 @@ function makeMap() {
     world.add(banner);
   });
 
-  const doorSpots = [
-    { pos: [-7.1, 1.2, -3.8], rot: 0 },
-    { pos: [5.7, 1.2, -14.75], rot: 0 },
-    { pos: [-15, 1.2, 3], rot: Math.PI / 2 },
-    { pos: [-3.3, 1.2, 9.6], rot: 0 },
-    { pos: [4.8, 1.2, 9.6], rot: 0 },
-    { pos: [0.1, 1.2, -9.7], rot: 0 }
-  ];
-  doorSpots.forEach((spot) => {
+  doorwayDefs.forEach((doorway) => {
+    const horizontal = doorway.size[0] >= doorway.size[2];
+    const rot = horizontal ? 0 : Math.PI / 2;
+    const pos = [doorway.center[0], 1.2, doorway.center[2]];
     const frame = box(1.6, 2.6, 0.28, 0x273242, { roughness: 0.62, metalness: 0.45 });
-    frame.position.set(...spot.pos);
-    frame.rotation.y = spot.rot;
+    frame.position.set(...pos);
+    frame.rotation.y = rot;
     world.add(frame);
 
     const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8, emissive: 0x1f1610, emissiveIntensity: 0.2 });
-    door.position.set(...spot.pos);
-    door.rotation.y = spot.rot;
+    door.position.set(...pos);
+    door.rotation.y = rot;
     world.add(door);
     visionOccluders.push(door);
     destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
@@ -1457,23 +1453,29 @@ function getRoleBreachPoint(bot) {
 function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
   const gaitSpeed = THREE.MathUtils.clamp(moveAmount * 3.2, 0, 1.8);
   bot.gait += dt * (3.6 + gaitSpeed * 4.2);
+  bot.abilityAnim = Math.max(0, bot.abilityAnim - dt * 1.9);
   bot.lastMoveSpeed = THREE.MathUtils.lerp(bot.lastMoveSpeed, moveAmount, dt * 8);
   const swing = Math.sin(bot.gait) * (0.18 + bot.lastMoveSpeed * 0.24);
   const armSwing = Math.sin(bot.gait + Math.PI * 0.5) * (0.12 + bot.lastMoveSpeed * 0.14);
   const adsBias = hostileVisible ? 1 : 0;
+  const crouchBias = (bot.inCover || bot.retreat) ? 1 : 0;
 
-  bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, swing, dt * 10);
-  bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -swing, dt * 10);
-  bot.leftArm.rotation.x = THREE.MathUtils.lerp(bot.leftArm.rotation.x, -armSwing - adsBias * 0.6, dt * 10);
-  bot.rightArm.rotation.x = THREE.MathUtils.lerp(bot.rightArm.rotation.x, armSwing - 0.2 - adsBias * 0.45, dt * 10);
+  bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, swing * (1 - crouchBias * 0.35), dt * 10);
+  bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -swing * (1 - crouchBias * 0.35), dt * 10);
+  bot.leftArm.rotation.x = THREE.MathUtils.lerp(bot.leftArm.rotation.x, -armSwing - adsBias * 0.6 - crouchBias * 0.24 - bot.abilityAnim * 0.55, dt * 10);
+  bot.rightArm.rotation.x = THREE.MathUtils.lerp(bot.rightArm.rotation.x, armSwing - 0.2 - adsBias * 0.45 - crouchBias * 0.2 + bot.abilityAnim * 0.45, dt * 10);
 
   bot.lean = THREE.MathUtils.lerp(bot.lean, THREE.MathUtils.clamp(bot.strafeDir * bot.lastMoveSpeed * 0.25, -0.2, 0.2), dt * 6);
   bot.mesh.rotation.z = bot.lean;
-  bot.mesh.position.y = THREE.MathUtils.lerp(bot.mesh.position.y, 1.02 + Math.abs(Math.sin(bot.gait * 2.1)) * 0.03 * bot.lastMoveSpeed, dt * 10);
+  bot.mesh.position.y = THREE.MathUtils.lerp(bot.mesh.position.y, 1.02 - crouchBias * 0.16 + Math.abs(Math.sin(bot.gait * 2.1)) * 0.03 * bot.lastMoveSpeed, dt * 10);
+  bot.helmet.rotation.y = THREE.MathUtils.lerp(bot.helmet.rotation.y, (aimPoint ? THREE.MathUtils.clamp(Math.sin(bot.gait * 0.5) * 0.12, -0.18, 0.18) : 0) + bot.lean * 0.4, dt * 6);
+  bot.abilityRig.rotation.y = THREE.MathUtils.lerp(bot.abilityRig.rotation.y, bot.gait * 0.08 + bot.abilityAnim * 1.4, dt * 9);
+  bot.abilityRig.position.y = THREE.MathUtils.lerp(bot.abilityRig.position.y, 0.38 + Math.sin(bot.gait * 1.8) * 0.03 + bot.abilityAnim * 0.08, dt * 9);
 
   if (bot.gunMesh && aimPoint) {
     bot.gunMesh.lookAt(aimPoint.clone().setY(1.22));
     bot.gunMesh.position.z = THREE.MathUtils.lerp(bot.gunMesh.position.z, hostileVisible ? -0.42 : -0.36, dt * 8);
+    bot.gunMesh.position.y = THREE.MathUtils.lerp(bot.gunMesh.position.y, 0.22 - crouchBias * 0.06 + bot.abilityAnim * 0.03, dt * 8);
   }
 }
 
@@ -2046,15 +2048,18 @@ function updatePlayer(dt) {
 
   const moveSpeed = Math.min(1, move.length() + (player.sprint ? 0.45 : 0.2));
   const bob = Math.sin(performance.now() * (player.sprint ? 0.018 : 0.012)) * 0.008 * moveSpeed;
+  const strafeBlend = (input.keys['KeyD'] ? 1 : 0) - (input.keys['KeyA'] ? 1 : 0);
+  const forwardBlend = (input.keys['KeyW'] ? 1 : 0) - (input.keys['KeyS'] ? 1 : 0);
+  const sprintPose = player.sprint ? 1 : 0;
   const targetGunX = input.ads ? 0.06 : 0.33;
   const targetGunY = input.ads ? -0.2 : -0.29;
   const targetGunZ = input.ads ? -0.24 : -0.45;
-  weaponRig.position.x = THREE.MathUtils.lerp(weaponRig.position.x, targetGunX, dt * 11);
-  weaponRig.position.y = THREE.MathUtils.lerp(weaponRig.position.y, targetGunY + bob, dt * 11);
-  weaponRig.position.z = THREE.MathUtils.lerp(weaponRig.position.z, targetGunZ, dt * 11);
-  weaponRig.rotation.y = THREE.MathUtils.lerp(weaponRig.rotation.y, input.ads ? 0 : -0.2, dt * 10);
-  weaponRig.rotation.x = THREE.MathUtils.lerp(weaponRig.rotation.x, player.recoil * 4 + bob * 1.8, dt * 12);
-  weaponRig.rotation.z = THREE.MathUtils.lerp(weaponRig.rotation.z, input.lean * 0.06, dt * 12);
+  weaponRig.position.x = THREE.MathUtils.lerp(weaponRig.position.x, targetGunX + strafeBlend * 0.016, dt * 11);
+  weaponRig.position.y = THREE.MathUtils.lerp(weaponRig.position.y, targetGunY + bob - sprintPose * 0.06, dt * 11);
+  weaponRig.position.z = THREE.MathUtils.lerp(weaponRig.position.z, targetGunZ + forwardBlend * 0.012 + sprintPose * 0.04, dt * 11);
+  weaponRig.rotation.y = THREE.MathUtils.lerp(weaponRig.rotation.y, (input.ads ? 0 : -0.2) + strafeBlend * 0.07, dt * 10);
+  weaponRig.rotation.x = THREE.MathUtils.lerp(weaponRig.rotation.x, player.recoil * 4 + bob * 1.8 + sprintPose * 0.18, dt * 12);
+  weaponRig.rotation.z = THREE.MathUtils.lerp(weaponRig.rotation.z, input.lean * 0.06 - strafeBlend * 0.05, dt * 12);
 
   shootCd -= dt;
   if (input.fire && shootCd <= 0 && player.ammo > 0) {
