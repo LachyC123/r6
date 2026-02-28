@@ -458,6 +458,25 @@ const attackerExecuteOffsets = {
   Support: new THREE.Vector3(0, 0, 3.6)
 };
 
+const operatorDesigns = {
+  Planter: { accent: 0xe2bd62, helmet: 0x546580, visor: 0x6fd8ff, emblem: 0xf6cc74 },
+  Support: { accent: 0x62a3e2, helmet: 0x4d6788, visor: 0x8fe9ff, emblem: 0x74d0ff },
+  Fragger: { accent: 0xd86d5c, helmet: 0x6e4f5c, visor: 0xff9a82, emblem: 0xff9474 },
+  Entry: { accent: 0x7be084, helmet: 0x4e7359, visor: 0x9fffb6, emblem: 0x7cf8b2 },
+  Anchor: { accent: 0xbf7bff, helmet: 0x6e4b7e, visor: 0xd5a5ff, emblem: 0xd29dff },
+  Roamer: { accent: 0xff8f73, helmet: 0x774949, visor: 0xffb7a1, emblem: 0xffaa8d },
+  Intel: { accent: 0x69d7ff, helmet: 0x466f86, visor: 0x9feaff, emblem: 0x7bdfff },
+  Denier: { accent: 0xffd26d, helmet: 0x7c653f, visor: 0xffed9f, emblem: 0xffdf8f }
+};
+
+const defenderPatrolPoints = [
+  new THREE.Vector3(-9.8, 1, -4.8),
+  new THREE.Vector3(8.7, 1, -3.6),
+  new THREE.Vector3(-7.4, 1, 6.2),
+  new THREE.Vector3(7.9, 1, 6.6),
+  new THREE.Vector3(-1.2, 1, 0.8)
+];
+
 const roomClearCorners = [
   new THREE.Vector3(-3.2, 1, -8.6),
   new THREE.Vector3(3.1, 1, -8.5),
@@ -787,6 +806,7 @@ const player = {
 camera.position.copy(player.pos);
 
 function makeBot(team, role, pos, spawnIndex = 0) {
+  const design = operatorDesigns[role] || {};
   const m = box(0.76, 1.16, 0.52, team === 'atk' ? 0x2f435b : 0x4e2d2d, {
     roughness: 0.58,
     metalness: 0.34,
@@ -802,11 +822,16 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   vest.position.set(0, 0.02, 0);
   m.add(vest);
 
-  const helmet = box(0.52, 0.32, 0.52, team === 'atk' ? 0x3a4f66 : 0x5c3434, { roughness: 0.3, metalness: 0.55 });
+  const helmet = box(0.52, 0.32, 0.52, design.helmet || (team === 'atk' ? 0x3a4f66 : 0x5c3434), { roughness: 0.3, metalness: 0.55 });
   helmet.position.set(0, 0.77, 0.02);
   m.add(helmet);
 
-  const visor = box(0.34, 0.14, 0.06, 0x111723, { roughness: 0.1, metalness: 0.82, emissive: 0x0d4c80, emissiveIntensity: 0.28 });
+  const visor = box(0.34, 0.14, 0.06, 0x111723, {
+    roughness: 0.1,
+    metalness: 0.82,
+    emissive: design.visor || 0x0d4c80,
+    emissiveIntensity: 0.28
+  });
   visor.position.set(0, -0.02, -0.24);
   helmet.add(visor);
 
@@ -817,7 +842,7 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   headsetR.position.x = 0.26;
   helmet.add(headsetR);
 
-  const shoulderL = box(0.18, 0.2, 0.2, team === 'atk' ? 0x334a64 : 0x6a3d3d, { roughness: 0.58, metalness: 0.22 });
+  const shoulderL = box(0.18, 0.2, 0.2, design.accent || (team === 'atk' ? 0x334a64 : 0x6a3d3d), { roughness: 0.58, metalness: 0.22 });
   shoulderL.position.set(-0.38, 0.3, -0.02);
   m.add(shoulderL);
   const shoulderR = shoulderL.clone();
@@ -838,7 +863,7 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   rightArm.position.x = 0.49;
   m.add(rightArm);
 
-  const patch = box(0.24, 0.18, 0.04, team === 'atk' ? 0x2e86ff : 0xff7a5f, {
+  const patch = box(0.24, 0.18, 0.04, design.emblem || (team === 'atk' ? 0x2e86ff : 0xff7a5f), {
     roughness: 0.3,
     metalness: 0.28,
     emissive: team === 'atk' ? 0x0f4fb5 : 0xb53f25,
@@ -846,6 +871,15 @@ function makeBot(team, role, pos, spawnIndex = 0) {
   });
   patch.position.set(0, 0.12, -0.3);
   m.add(patch);
+
+  const roleStripe = box(0.58, 0.08, 0.04, design.accent || (team === 'atk' ? 0x53a4ff : 0xff8d73), {
+    roughness: 0.38,
+    metalness: 0.3,
+    emissive: design.accent || 0x3d7bc7,
+    emissiveIntensity: 0.35
+  });
+  roleStripe.position.set(0, -0.14, -0.31);
+  m.add(roleStripe);
 
   const outline = box(0.92, 1.96, 0.92, team === 'atk' ? 0x62bcff : 0xff7777, {
     roughness: 0.2,
@@ -874,7 +908,8 @@ function makeBot(team, role, pos, spawnIndex = 0) {
     gait: Math.random() * Math.PI * 2, lean: 0, task: 'hold',
     cornerIndex: spawnIndex % roomClearCorners.length, cornerLookTimer: 0.5 + Math.random() * 1.2,
     scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0, hearing: 1.1 + Math.random() * 0.4,
-    squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0
+    squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2,
+    patrolIndex: spawnIndex % defenderPatrolPoints.length
   };
 }
 
@@ -903,6 +938,12 @@ const roomZones = [
   { name: 'Loading Dock', min: new THREE.Vector3(2.9, 0, 3.2), max: new THREE.Vector3(14.8, 4, 14.8) }
 ];
 
+
+
+function getAreaNameFromPos(pos) {
+  const zone = roomZones.find((r) => pos.x >= r.min.x && pos.x <= r.max.x && pos.z >= r.min.z && pos.z <= r.max.z);
+  return zone ? zone.name : 'Exterior';
+}
 function makeNoise(pos, radius = 6.8, team = null) {
   noiseEvents.push({ pos: pos.clone(), radius, ttl: 1.8, team });
 }
@@ -982,7 +1023,7 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
       if (!headshot && b.armor) b.armor = Math.max(0, b.armor - damage * 0.45);
       if (b.hp <= 0) {
         b.dead = true; b.mesh.visible = false;
-        addFeed(`${shooter === player ? 'You' : shooter.role} eliminated ${b.role}`);
+        addFeed(`${shooter === player ? 'You' : shooter.role} eliminated ${b.role} at ${getAreaNameFromPos(p).toUpperCase()}`);
       }
     } else if (hitDes) {
       const dObj = destructibles.find(x => x.mesh === hitDes.object);
@@ -1325,13 +1366,14 @@ function botThink(bot, dt) {
   }
 
   bot.gadgetCd -= dt;
+  bot.calloutCd = Math.max(0, (bot.calloutCd || 0) - dt);
   const enemy = bot.team === 'atk'
     ? [...bots.filter(b => b.team === 'def' && !b.dead), ...(player.team === 'def' && player.alive ? [player] : [])]
     : [...bots.filter(b => b.team === 'atk' && !b.dead), ...(player.team === 'atk' && player.alive ? [player] : [])];
   const myPos = bot.mesh.position;
   const visibleCandidates = enemy.filter((e) => {
     const targetPos = (e.mesh ? e.mesh.position : e.pos).clone().setY(1.2);
-    return targetPos.distanceTo(myPos) < 11.8 && hasLineOfSight(myPos.clone().setY(1.2), targetPos);
+    return targetPos.distanceTo(myPos) < 19.5 && hasLineOfSight(myPos.clone().setY(1.2), targetPos);
   });
   visibleCandidates.sort((a, b) => (a.mesh ? a.mesh.position : a.pos).distanceTo(myPos) - (b.mesh ? b.mesh.position : b.pos).distanceTo(myPos));
   const visible = visibleCandidates[0];
@@ -1340,10 +1382,15 @@ function botThink(bot, dt) {
     bot.alert = 2.5;
     bot.pingTarget = (visible.mesh ? visible.mesh.position : visible.pos).clone();
     bot.lastHeard = bot.pingTarget.clone();
+    if (bot.calloutCd <= 0) {
+      const enemyName = visible === player ? 'player' : visible.role;
+      addFeed(`${bot.role} callout: ${enemyName} spotted in ${getAreaNameFromPos(bot.pingTarget).toUpperCase()}`);
+      bot.calloutCd = 4 + Math.random() * 2.5;
+    }
     bots.forEach((ally) => {
-      if (ally !== bot && ally.team === bot.team && !ally.dead && ally.mesh.position.distanceTo(bot.mesh.position) < 9.5) {
+      if (ally !== bot && ally.team === bot.team && !ally.dead && ally.mesh.position.distanceTo(bot.mesh.position) < 12.5) {
         ally.lastHeard = bot.pingTarget.clone();
-        ally.alert = Math.max(ally.alert, 1.4);
+        ally.alert = Math.max(ally.alert, 1.7);
       }
     });
   } else {
@@ -1422,6 +1469,12 @@ function botThink(bot, dt) {
     bot.task = 'hold';
     const hold = defenderHoldPoints[bot.role];
     target = hold[Math.floor((performance.now() * 0.001 + bot.spawnIndex) % hold.length)].clone();
+    if (state.phase === 'action' && !state.bombPlanted && bot.alert < 0.55) {
+      bot.task = 'patrol';
+      const patrolPoint = defenderPatrolPoints[bot.patrolIndex % defenderPatrolPoints.length].clone();
+      target = patrolPoint;
+      if (myPos.distanceTo(patrolPoint) < 1.4) bot.patrolIndex = (bot.patrolIndex + 1) % defenderPatrolPoints.length;
+    }
     if (state.atkObjectiveKnown && bot.alert <= 0) target = state.objectivePos.clone().add(new THREE.Vector3((bot.spawnIndex - 1.5) * 1.1, 0, -1.8));
     if (bot.role === 'Roamer' && activeBreach && activeBreach.mesh.position.distanceTo(state.objectivePos) > 4) {
       bot.task = 'rotate';
@@ -1436,6 +1489,21 @@ function botThink(bot, dt) {
 
   if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter' && !activeBreach) {
     target = state.objectivePos.clone().add(attackerExecuteOffsets[bot.role] || new THREE.Vector3(0, 0, 2));
+  }
+
+  if (!visible && state.phase === 'action' && enemy.length) {
+    const nearestEnemy = enemy
+      .slice()
+      .sort((a, b) => (a.mesh ? a.mesh.position : a.pos).distanceTo(myPos) - (b.mesh ? b.mesh.position : b.pos).distanceTo(myPos))[0];
+    const enemyPos = (nearestEnemy.mesh ? nearestEnemy.mesh.position : nearestEnemy.pos).clone();
+    if (bot.team === 'atk' && bot.alert < 0.45 && !state.bombPlanted) {
+      target = enemyPos;
+      bot.task = 'pinch';
+    }
+    if (bot.team === 'def' && bot.alert > 0.8 && !state.bombPlanted) {
+      target = enemyPos;
+      bot.task = 'contest';
+    }
   }
   if (!visible && bot.lastHeard && bot.alert > 0.2) {
     target = bot.lastHeard.clone().add(new THREE.Vector3((bot.spawnIndex % 2 ? 1 : -1) * 0.8, 0, 0.6));
