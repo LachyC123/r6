@@ -382,3 +382,71 @@ html, body {
     display: block;
   }
 }
+
+@media (max-width: 820px) {
+  #topBar {
+    width: min(94vw, 680px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 12px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  #score {
+    grid-column: 1 / -1;
+    text-align: center;
+    font-size: 12px;
+  }
+
+  #compassBar {
+    top: 116px;
+    font-size: 11px;
+  }
+
+  #bombOwner {
+    top: 154px;
+    max-width: 90vw;
+    text-align: center;
+    font-size: 11px;
+  }
+
+  #feed {
+    display: none;
+  }
+
+  #leftPanel,
+  #rightPanel {
+    bottom: 14px;
+    min-width: 0;
+    width: calc(50vw - 22px);
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  #leftPanel {
+    left: 10px;
+  }
+
+  #rightPanel {
+    right: 10px;
+  }
+
+  #objective {
+    bottom: 146px;
+    max-width: calc(100vw - 24px);
+    width: max-content;
+    font-size: 14px;
+    line-height: 1.35;
+    text-align: left;
+  }
+
+  #plantStatus {
+    bottom: 116px;
+    min-width: 0;
+    width: calc(100vw - 24px);
+  }
+}
