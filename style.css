@@ -2,6 +2,8 @@
   --fg: #d8e4ff;
   --accent: #6fb4ff;
   --accent-2: #81ffe2;
+  --atk: #69b6ff;
+  --def: #ff8c73;
   --danger: #ff6767;
   --ok: #88ffb2;
   --bg: rgba(8, 15, 26, 0.55);
@@ -64,6 +66,24 @@ html, body {
   font-weight: 600;
   box-shadow: 0 4px 20px rgba(80, 135, 255, 0.22);
 }
+#aliveCount {
+  color: #dfeaff;
+  text-shadow: 0 0 10px rgba(145, 194, 255, 0.38);
+}
+#compassBar {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(6, 16, 30, 0.7);
+  border: 1px solid rgba(132, 176, 255, 0.26);
+  border-radius: 6px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  padding: 4px 14px;
+  color: #cde3ff;
+  box-shadow: 0 4px 16px rgba(11, 31, 60, 0.42);
+}
 #leftPanel, #rightPanel {
   position: absolute;
   bottom: 20px;
@@ -89,6 +109,7 @@ html, body {
   max-width: 60vw;
   box-shadow: 0 0 24px rgba(102, 167, 255, 0.2);
   animation: pulse-border 2.8s infinite;
+  border-radius: 4px;
 }
 #centerReticle {
   position: absolute;
@@ -120,6 +141,9 @@ html, body {
   background: rgba(8, 15, 26, 0.6);
   border-right: 2px solid var(--accent);
   box-shadow: 0 0 12px rgba(111, 180, 255, 0.15);
+}
+.feed-line:first-child {
+  border-right-color: var(--accent-2);
 }
 .hidden { display: none !important; }
 #scoreboard {

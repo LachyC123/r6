@@ -24,6 +24,8 @@ const ui = {
   timer: document.getElementById('timer'),
   score: document.getElementById('score'),
   round: document.getElementById('round'),
+  aliveCount: document.getElementById('aliveCount'),
+  compassBar: document.getElementById('compassBar'),
   health: document.getElementById('health'),
   ammo: document.getElementById('ammo'),
   stance: document.getElementById('stance'),
@@ -254,6 +256,9 @@ const trails = [];
 const teammateOutlines = [];
 const visionOccluders = [];
 const doorways = [];
+const noiseEvents = [];
+const rainDrops = [];
+const breachSignals = [];
 let objectiveIntelMesh;
 let objectiveIntelPulse;
 
@@ -746,6 +751,24 @@ function makeMap() {
   world.add(accentB);
   flickerLights.push(accentB);
 
+  const policeBlue = new THREE.PointLight(0x3e8dff, 1.2, 20, 2);
+  policeBlue.position.set(-13.8, 3.2, 12.4);
+  world.add(policeBlue);
+  const policeAmber = new THREE.PointLight(0xff9a63, 1.1, 20, 2);
+  policeAmber.position.set(13.8, 3.1, -12.6);
+  world.add(policeAmber);
+  flickerLights.push(policeBlue, policeAmber);
+
+  const rainGeo = new THREE.BoxGeometry(0.025, 0.42, 0.025);
+  const rainMat = new THREE.MeshBasicMaterial({ color: 0x9ecbff, transparent: true, opacity: 0.26 });
+  for (let i = 0; i < 180; i++) {
+    const drop = new THREE.Mesh(rainGeo, rainMat);
+    drop.position.set((Math.random() - 0.5) * 34, 2.5 + Math.random() * 10, (Math.random() - 0.5) * 34);
+    drop.userData.speed = 6 + Math.random() * 7;
+    world.add(drop);
+    rainDrops.push(drop);
+  }
+
   const camPoints = [new THREE.Vector3(-12, 3.3, -11), new THREE.Vector3(12, 3.3, 8), new THREE.Vector3(1, 3.4, -5), new THREE.Vector3(13.2, 3.3, -10.8)];
   camPoints.forEach((p, i) => {
     const cam = box(0.3, 0.2, 0.3, 0x9bc0e8);
@@ -850,7 +873,8 @@ function makeBot(team, role, pos, spawnIndex = 0) {
     leftLeg, rightLeg, leftArm, rightArm, helmet,
     gait: Math.random() * Math.PI * 2, lean: 0, task: 'hold',
     cornerIndex: spawnIndex % roomClearCorners.length, cornerLookTimer: 0.5 + Math.random() * 1.2,
-    scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0
+    scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0, hearing: 1.1 + Math.random() * 0.4,
+    squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0
   };
 }
 
@@ -879,6 +903,26 @@ const roomZones = [
   { name: 'Loading Dock', min: new THREE.Vector3(2.9, 0, 3.2), max: new THREE.Vector3(14.8, 4, 14.8) }
 ];
 
+function makeNoise(pos, radius = 6.8, team = null) {
+  noiseEvents.push({ pos: pos.clone(), radius, ttl: 1.8, team });
+}
+
+function updateAIWorldState(dt) {
+  for (let i = noiseEvents.length - 1; i >= 0; i--) {
+    noiseEvents[i].ttl -= dt;
+    if (noiseEvents[i].ttl <= 0) noiseEvents.splice(i, 1);
+  }
+  for (let i = breachSignals.length - 1; i >= 0; i--) {
+    breachSignals[i].ttl -= dt;
+    if (breachSignals[i].ttl <= 0) breachSignals.splice(i, 1);
+  }
+}
+
+function getCompassLabel(deg) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+}
+
 function getPlayerArea() {
   const p = player.pos;
   const zone = roomZones.find((r) => p.x >= r.min.x && p.x <= r.max.x && p.z >= r.min.z && p.z <= r.max.z);
@@ -892,6 +936,11 @@ function updateUI() {
   ui.timer.textContent = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   ui.score.textContent = `Vanguard ${state.score.atk} - ${state.score.def} Bastion`;
   ui.round.textContent = `Round ${state.round} / ${state.maxRounds}`;
+  const atkAlive = (player.team === 'atk' && player.alive ? 1 : 0) + bots.filter((b) => b.team === 'atk' && !b.dead).length;
+  const defAlive = (player.team === 'def' && player.alive ? 1 : 0) + bots.filter((b) => b.team === 'def' && !b.dead).length;
+  ui.aliveCount.textContent = `ALIVE ${atkAlive}v${defAlive}`;
+  const heading = THREE.MathUtils.radToDeg(player.yaw);
+  ui.compassBar.textContent = `${getCompassLabel(heading)} · ${String(Math.round((heading + 360) % 360)).padStart(3, '0')}°`;
   ui.health.textContent = `HP ${Math.max(0, Math.floor(player.hp))}`;
   ui.ammo.textContent = `AMMO ${player.ammo} / ${player.reserve}`;
   ui.stance.textContent = player.crouch ? 'CROUCH' : (player.sprint ? 'SPRINT' : 'STAND');
@@ -941,6 +990,7 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
       if (dObj.hp <= 0 && !dObj.destroyed) destroyDestructible(dObj);
     }
   }
+  makeNoise(shotStart, shooter === player ? 9.2 : 7.2, shooter.team || null);
   beep(180 + Math.random() * 50, 0.04, 'square', 0.02);
 }
 
@@ -985,6 +1035,8 @@ function destroyDestructible(d) {
     d.mesh.visible = false;
   }
   addFeed(`${d.type.toUpperCase()} breached`);
+  breachSignals.push({ pos: d.mesh.position.clone(), ttl: 7 });
+  makeNoise(d.mesh.position, 11.5, null);
   beep(90, 0.15, 'sawtooth', 0.05);
 }
 
@@ -1000,6 +1052,7 @@ function placeBreachCharge() {
   world.add(charge);
   gadgets.push({ type: 'charge', mesh: charge, target: destructibles.find(d => d.mesh === hit.object), timer: 1.5 });
   addFeed('Breach charge armed');
+  makeNoise(charge.position, 5.8, player.team);
   beep(800, 0.07, 'triangle', 0.03);
 }
 
@@ -1287,8 +1340,27 @@ function botThink(bot, dt) {
     bot.alert = 2.5;
     bot.pingTarget = (visible.mesh ? visible.mesh.position : visible.pos).clone();
     bot.lastHeard = bot.pingTarget.clone();
+    bots.forEach((ally) => {
+      if (ally !== bot && ally.team === bot.team && !ally.dead && ally.mesh.position.distanceTo(bot.mesh.position) < 9.5) {
+        ally.lastHeard = bot.pingTarget.clone();
+        ally.alert = Math.max(ally.alert, 1.4);
+      }
+    });
+  } else {
+    const heard = noiseEvents.find((n) => n.team !== bot.team && n.pos.distanceTo(myPos) < n.radius * bot.hearing);
+    if (heard) {
+      bot.lastHeard = heard.pos.clone();
+      bot.alert = Math.max(bot.alert, 1.6);
+      if (!bot.pingTarget || Math.random() > 0.5) bot.pingTarget = heard.pos.clone();
+    }
   }
   bot.alert -= dt;
+
+  const hotBreach = breachSignals.find((b) => b.pos.distanceTo(myPos) < 12);
+  if (!visible && hotBreach && bot.team === 'def' && state.phase !== 'prep') {
+    bot.alert = Math.max(bot.alert, 1.8);
+    bot.lastHeard = hotBreach.pos.clone();
+  }
 
   if (bot.hp < 30) bot.retreat = true;
   if (bot.retreat && bot.hp > 55) bot.retreat = false;
@@ -1365,6 +1437,15 @@ function botThink(bot, dt) {
   if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter' && !activeBreach) {
     target = state.objectivePos.clone().add(attackerExecuteOffsets[bot.role] || new THREE.Vector3(0, 0, 2));
   }
+  if (!visible && bot.lastHeard && bot.alert > 0.2) {
+    target = bot.lastHeard.clone().add(new THREE.Vector3((bot.spawnIndex % 2 ? 1 : -1) * 0.8, 0, 0.6));
+    if (!aimPoint) aimPoint = bot.lastHeard.clone();
+    bot.task = bot.team === 'def' ? 'investigate' : 'hunt';
+  }
+  if (bot.team === 'def' && state.bombPlanted && bot.alert <= 0.8) {
+    target = state.objectivePos.clone().add(new THREE.Vector3((bot.spawnIndex - 1.5) * 0.95, 0, 2.2));
+    bot.task = 'retake';
+  }
   if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
 
   const navTarget = getBotNavigationTarget(myPos, target);
@@ -1420,6 +1501,7 @@ function botThink(bot, dt) {
       shoot(bot, fireDir, 20 + bot.aggression * 4, botAccuracy);
       bot.shootTimer = 0.16 + Math.random() * (0.32 - bot.discipline * 0.08);
       if (visible === player) {
+        bot.suppressing = 0.9;
         const armorMitigation = player.crouch ? 0.18 : 0.1;
         player.hp -= (13 + Math.random() * 9) * (1 - armorMitigation);
         shakeT = 0.12;
@@ -1580,7 +1662,9 @@ function updatePlayer(dt) {
   player.sprint = !!((input.keys['ShiftLeft'] || input.keys['ShiftRight']) && !player.crouch && !input.ads);
   const walk = input.keys['AltLeft'] || input.keys['AltRight'];
 
-  const speed = player.crouch ? 2.2 : player.sprint ? 5.1 : walk ? 2.5 : input.ads ? 2.8 : 3.8;
+  const speedBase = player.crouch ? 2.2 : player.sprint ? 5.1 : walk ? 2.5 : input.ads ? 2.8 : 3.8;
+  const suppressed = bots.some((b) => !b.dead && b.team !== player.team && b.suppressing > 0 && b.mesh.position.distanceTo(player.pos) < 9.5);
+  const speed = speedBase * (suppressed ? 0.85 : 1);
   const move = new THREE.Vector3((input.keys['KeyD'] ? 1 : 0) - (input.keys['KeyA'] ? 1 : 0), 0, (input.keys['KeyS'] ? 1 : 0) - (input.keys['KeyW'] ? 1 : 0));
   if (move.lengthSq()) {
     move.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
@@ -1593,6 +1677,7 @@ function updatePlayer(dt) {
         const f = player.crouch ? 140 : player.sprint ? 280 : 200;
         beep(f, 0.03, 'triangle', player.crouch ? 0.007 : 0.013);
         footTimer = player.crouch ? 0.45 : player.sprint ? 0.2 : 0.32;
+        makeNoise(player.pos, player.crouch ? 3.2 : player.sprint ? 6.2 : 4.6, player.team);
       }
     }
   }
@@ -1636,7 +1721,7 @@ function updatePlayer(dt) {
 
   if (input.melee) {
     const near = destructibles.find(d => !d.destroyed && d.mesh.position.distanceTo(player.pos) < 1.5 && (d.type === 'door' || d.type === 'wall'));
-    if (near) { near.hp -= 28; if (near.hp <= 0) destroyDestructible(near); }
+    if (near) { near.hp -= 28; if (near.hp <= 0) destroyDestructible(near); makeNoise(near.mesh.position, 6.2, player.team); }
     input.melee = false;
   }
 
@@ -1679,10 +1764,11 @@ function tick() {
     player.pingCd -= dt;
     shakeT = Math.max(0, shakeT - dt * 2.4);
 
+    updateAIWorldState(dt);
     applyMobileInput();
     gamepadUpdate();
     updatePlayer(dt);
-    bots.forEach(b => botThink(b, dt));
+    bots.forEach(b => { b.suppressing = Math.max(0, b.suppressing - dt); botThink(b, dt); });
 
     gadgets.forEach(g => {
       if (g.type === 'charge') {
@@ -1713,6 +1799,15 @@ function tick() {
 
     bullets.forEach(b => { b.life -= dt; b.vel.y -= dt * 5; b.mesh.position.addScaledVector(b.vel, dt); if (b.life <= 0) b.mesh.visible = false; });
     for (let i = bullets.length - 1; i >= 0; i--) if (bullets[i].life <= 0) bullets.splice(i, 1);
+
+    rainDrops.forEach((drop) => {
+      drop.position.y -= drop.userData.speed * dt;
+      if (drop.position.y < 0.12) {
+        drop.position.y = 3 + Math.random() * 9;
+        drop.position.x = player.pos.x + (Math.random() - 0.5) * 30;
+        drop.position.z = player.pos.z + (Math.random() - 0.5) * 30;
+      }
+    });
 
     trails.forEach(t => {
       t.life -= dt;
