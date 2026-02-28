@@ -33,6 +33,7 @@ const ui = {
   gadgetA: document.getElementById('gadgetA'),
   gadgetB: document.getElementById('gadgetB'),
   feed: document.getElementById('feed'),
+  deathBanner: document.getElementById('deathBanner'),
   scoreboard: document.getElementById('scoreboard'),
   teamRole: document.getElementById('teamRole'),
   operatorPlate: document.getElementById('operatorPlate'),
@@ -875,7 +876,8 @@ const player = {
   team: 'atk', role: playerOperator.role, codename: playerOperator.codename, ability: playerOperator.ability, abilityLabel: playerOperator.abilityLabel,
   hp: 100, pos: new THREE.Vector3(-16, 1.7, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   grounded: true, crouch: false, sprint: false, ammo: 30, reserve: 90, recoil: 0, spread: 0.015,
-  breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, abilityCd: 0, alive: true, hasBomb: false
+  breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, abilityCd: 0, alive: true, hasBomb: false,
+  deathAnim: 0, deathTilt: 0, deathCause: ''
 };
 camera.position.copy(player.pos);
 
@@ -998,7 +1000,9 @@ function makeBot(team, operator, pos, spawnIndex = 0) {
     scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0, hearing: 1.1 + Math.random() * 0.4,
     squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2, abilityCd: 4 + Math.random() * 5, abilityAnim: 0,
     patrolIndex: spawnIndex % defenderPatrolPoints.length, nameplate, abilityRig,
-    hasBomb: false
+    hasBomb: false, deathAnim: 0, deathTilt: 0, deathDir: new THREE.Vector3(),
+    routeBias: ((spawnIndex % 2) ? 1 : -1) * (0.9 + Math.random() * 0.7),
+    tacticalOffset: new THREE.Vector3((Math.random() - 0.5) * 1.9, 0, (Math.random() - 0.5) * 1.9)
   };
 }
 
@@ -1038,15 +1042,29 @@ function tryPickupDroppedBomb(entity, pos) {
 function onBotEliminated(bot, killerLabel, hitPos = null) {
   if (bot.dead) return;
   bot.dead = true;
-  bot.mesh.visible = false;
+  bot.deathAnim = 0.01;
+  bot.deathTilt = (Math.random() > 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.45);
+  bot.deathDir.set((Math.random() - 0.5) * 0.8, 0, -0.45 - Math.random() * 0.8).normalize();
   if (bot.hasBomb) dropBombFrom(bot, bot.mesh.position);
   if (killerLabel) addFeed(`${killerLabel} eliminated ${bot.codename} at ${getAreaNameFromPos(hitPos || bot.mesh.position).toUpperCase()}`);
+}
+
+function showDeathBanner(text) {
+  if (!ui.deathBanner) return;
+  ui.deathBanner.textContent = text;
+  ui.deathBanner.classList.remove('show');
+  void ui.deathBanner.offsetWidth;
+  ui.deathBanner.classList.add('show');
 }
 
 function onPlayerEliminated(reason = 'You were neutralized') {
   if (!player.alive) return;
   player.alive = false;
+  player.deathAnim = 0.01;
+  player.deathTilt = (Math.random() > 0.5 ? 1 : -1) * 0.35;
+  player.deathCause = reason;
   if (player.hasBomb) dropBombFrom(player, player.pos);
+  showDeathBanner('You are down');
   addFeed(reason);
 }
 
@@ -1161,6 +1179,7 @@ function updateUI() {
   const heading = THREE.MathUtils.radToDeg(player.yaw);
   ui.compassBar.textContent = `${getCompassLabel(heading)} · ${String(Math.round((heading + 360) % 360)).padStart(3, '0')}°`;
   ui.health.textContent = `HP ${Math.max(0, Math.floor(player.hp))}`;
+  if (!player.alive && ui.health) ui.health.textContent += ' · DOWN';
   ui.ammo.textContent = `AMMO ${player.ammo} / ${player.reserve}`;
   ui.stance.textContent = player.crouch ? 'CROUCH' : (player.sprint ? 'SPRINT' : 'STAND');
   ui.teamRole.textContent = `${player.team === 'atk' ? 'ATTACKER' : 'DEFENDER'} · ${player.role.toUpperCase()} · ${getPlayerArea()}`;
@@ -1480,6 +1499,16 @@ function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
 }
 
 
+function spawnAbilityBurst(pos, color, count = 5, lift = 1.4) {
+  for (let i = 0; i < count; i++) {
+    const spark = box(0.1, 0.1, 0.1, color, { emissive: color, emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.1 });
+    spark.position.copy(pos).add(new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.4 + Math.random() * lift, (Math.random() - 0.5) * 0.5));
+    spark.userData.temp = true;
+    world.add(spark);
+    impacts.push({ mesh: spark, t: 0.32 + Math.random() * 0.24 });
+  }
+}
+
 function triggerBotAbility(bot, visibleEnemy) {
   const myPos = bot.mesh.position;
   bot.abilityAnim = 0.9;
@@ -1493,6 +1522,7 @@ function triggerBotAbility(bot, visibleEnemy) {
       healFx.userData.temp = true;
       world.add(healFx);
       impacts.push({ mesh: healFx, t: 0.55 });
+      spawnAbilityBurst(patient.mesh.position.clone().setY(1.2), 0x7dffb0, 6, 1.1);
       addFeed(`${bot.codename} healed ${patient.codename}`);
       return true;
     }
@@ -1504,6 +1534,7 @@ function triggerBotAbility(bot, visibleEnemy) {
       g.type = 'spent';
       g.mesh.visible = false;
     });
+    spawnAbilityBurst(myPos.clone().setY(0.7), 0xb689ff, 7, 0.8);
     addFeed(`${bot.codename} emitted Jam Burst`);
     return true;
   }
@@ -1511,6 +1542,7 @@ function triggerBotAbility(bot, visibleEnemy) {
     const breach = destructibles.filter((d) => !d.destroyed).sort((a, b) => a.mesh.position.distanceTo(myPos) - b.mesh.position.distanceTo(myPos))[0];
     if (breach && breach.mesh.position.distanceTo(myPos) < 4.7) {
       destroyDestructible(breach);
+      spawnAbilityBurst(breach.mesh.position.clone().setY(1.1), 0xffc36f, 8, 1.8);
       addFeed(`${bot.codename} used ${bot.abilityLabel}`);
       return true;
     }
@@ -1522,12 +1554,14 @@ function triggerBotAbility(bot, visibleEnemy) {
     trap.userData.temp = true;
     world.add(trap);
     gadgets.push({ type: 'tripwire', team: bot.team, mesh: trap, hp: 22, temp: true });
+    spawnAbilityBurst(myPos.clone().setY(0.35), 0xff8d73, 4, 0.7);
     addFeed(`${bot.codename} set ${bot.abilityLabel}`);
     return true;
   }
   if (bot.ability === 'scannerPulse' || bot.ability === 'intelPing') {
     if (visibleEnemy) bot.pingTarget = (visibleEnemy.mesh ? visibleEnemy.mesh.position : visibleEnemy.pos).clone();
     addPing((bot.pingTarget || myPos).clone(), bot.team);
+    spawnAbilityBurst((bot.pingTarget || myPos).clone().setY(0.95), 0x74dbff, 5, 1.2);
     addFeed(`${bot.codename} marked target`);
     return true;
   }
@@ -1535,7 +1569,20 @@ function triggerBotAbility(bot, visibleEnemy) {
 }
 
 function botThink(bot, dt) {
-  if (bot.dead) return;
+  if (bot.dead) {
+    bot.deathAnim = Math.min(1.4, (bot.deathAnim || 0) + dt * 1.15);
+    const fall = THREE.MathUtils.smootherstep(Math.min(bot.deathAnim, 1), 0, 1);
+    bot.mesh.rotation.x = THREE.MathUtils.lerp(bot.mesh.rotation.x, -1.36, fall * 0.45);
+    bot.mesh.rotation.z = THREE.MathUtils.lerp(bot.mesh.rotation.z, bot.deathTilt || 0, fall * 0.35);
+    bot.mesh.position.y = THREE.MathUtils.lerp(bot.mesh.position.y, 0.4, fall * 0.38);
+    if (bot.deathDir?.lengthSq()) bot.mesh.position.addScaledVector(bot.deathDir, dt * (1 - Math.min(1, bot.deathAnim)) * 1.25);
+    if (bot.leftArm) bot.leftArm.rotation.x = THREE.MathUtils.lerp(bot.leftArm.rotation.x, -1.1, dt * 8);
+    if (bot.rightArm) bot.rightArm.rotation.x = THREE.MathUtils.lerp(bot.rightArm.rotation.x, -0.2, dt * 8);
+    if (bot.leftLeg) bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, 0.7, dt * 7);
+    if (bot.rightLeg) bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -0.5, dt * 7);
+    if (bot.nameplate) bot.nameplate.material.opacity = Math.max(0.06, 0.35 - bot.deathAnim * 0.18);
+    return;
+  }
   if (state.phase === 'prep' && !state.bombPlanted) {
     if (bot.team === 'atk') {
       const route = attackerDroneRoutes[bot.spawnIndex % attackerDroneRoutes.length];
@@ -1679,10 +1726,11 @@ function botThink(bot, dt) {
 
   if (bot.team === 'atk' && !bot.hasBomb) tryPickupDroppedBomb(bot, myPos);
 
-  let target = state.objectivePos.clone();
+  let target = state.objectivePos.clone().add(bot.tacticalOffset || new THREE.Vector3());
   let aimPoint = visible ? (visible.mesh ? visible.mesh.position.clone() : visible.pos.clone()) : null;
   const activeBreach = getRoleBreachPoint(bot) || getClosestEntryPoint(myPos);
   const attackWindows = destructibles.filter(d => !d.destroyed && d.type === 'window');
+  const squadMates = bots.filter((ally) => ally !== bot && !ally.dead && ally.team === bot.team);
 
   if (visible && bot.hp < 65) {
     const fallback = getNearestTacticalCover(myPos, bot.pingTarget || state.objectivePos, bot.team);
@@ -1695,7 +1743,7 @@ function botThink(bot, dt) {
   if (bot.team === 'atk' && state.phase === 'action' && activeBreach) {
     const toObj = state.objectivePos.clone().sub(activeBreach.mesh.position).setY(0).normalize();
     const stackRight = new THREE.Vector3(-toObj.z, 0, toObj.x);
-    const spread = (bot.spawnIndex - 1.5) * 1.45;
+    const spread = (bot.spawnIndex - 1.5) * 1.45 + (bot.routeBias || 0);
     const staging = activeBreach.mesh.position.clone()
       .addScaledVector(toObj, -2.9)
       .addScaledVector(stackRight, spread);
@@ -1782,6 +1830,18 @@ function botThink(bot, dt) {
     bot.task = 'retake';
   }
   if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
+
+  const avoid = new THREE.Vector3();
+  squadMates.forEach((ally) => {
+    const delta = myPos.clone().sub(ally.mesh.position);
+    delta.y = 0;
+    const dist = delta.length();
+    if (dist > 0.01 && dist < 1.95) avoid.addScaledVector(delta.normalize(), (1.95 - dist) * 0.85);
+  });
+  if (avoid.lengthSq() > 0.001) {
+    target.addScaledVector(avoid.normalize(), Math.min(1.45, avoid.length()));
+    bot.task = bot.task === 'plant' ? bot.task : 'reposition';
+  }
 
   const navTarget = getBotNavigationTarget(myPos, target);
   const move = navTarget.clone().sub(myPos); move.y = 0;
@@ -1914,6 +1974,9 @@ function resetRound() {
   player.ammo = 30;
   player.breachCharges = 2;
   player.abilityCd = 0;
+  player.deathAnim = 0;
+  player.deathCause = '';
+  if (ui.deathBanner) ui.deathBanner.classList.remove('show');
   deployDrone(false);
   camera.position.copy(player.pos);
   destructibles.forEach(d => {
@@ -2206,6 +2269,15 @@ function tick() {
     }
   }
   if (damageVignette) damageVignette.style.opacity = (0.45 + (1 - Math.max(0, player.hp) / 100) * 0.35).toFixed(2);
+
+  if (!player.alive) {
+    player.deathAnim = Math.min(1.3, (player.deathAnim || 0) + dt * 1.5);
+    const fall = THREE.MathUtils.smootherstep(Math.min(player.deathAnim, 1), 0, 1);
+    camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, player.deathTilt || 0.2, dt * 3.2);
+    camera.position.y = THREE.MathUtils.lerp(camera.position.y, player.pos.y - 0.95, fall * 0.35);
+  } else {
+    camera.rotation.z = THREE.MathUtils.lerp(camera.rotation.z, 0, dt * 8);
+  }
 
   updateUI();
   renderer.render(scene, camera);
