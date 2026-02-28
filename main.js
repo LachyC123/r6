@@ -555,8 +555,10 @@ function isInsideBuilding(pos) {
   return Math.abs(pos.x) < 14.3 && Math.abs(pos.z) < 14.3;
 }
 
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+const audioCtx = AudioContextCtor ? new AudioContextCtor() : null;
 function beep(freq = 200, len = 0.05, type = 'triangle', vol = 0.03) {
+  if (!audioCtx) return;
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
   o.type = type;
@@ -2463,7 +2465,7 @@ function resetRound() {
 
 document.body.addEventListener('click', async () => {
   if (!mobile.enabled && document.pointerLockElement !== document.body) document.body.requestPointerLock();
-  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  if (audioCtx?.state === 'suspended') await audioCtx.resume();
 });
 window.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== document.body || player.droneActive || player.camMode) return;
