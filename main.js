@@ -289,6 +289,7 @@ let bombDropRing;
 const breachSignals = [];
 let objectiveIntelMesh;
 let objectiveIntelPulse;
+const tacticalFxMeshes = [];
 
 const weaponRig = new THREE.Group();
 const weaponMuzzle = new THREE.Object3D();
@@ -566,6 +567,38 @@ function addFeed(text) {
   while (ui.feed.children.length > 6) ui.feed.lastChild.remove();
 }
 
+function botTaskToCallout(task, bot, target) {
+  const area = target ? getAreaNameFromPos(target).toUpperCase() : 'CURRENT POSITION';
+  const map = {
+    breach: `breaching ${area}`,
+    clear: `clearing ${area}`,
+    flank: `flanking through ${area}`,
+    fallback: `falling back to ${area}`,
+    hold: `holding ${area}`,
+    patrol: `patrolling ${area}`,
+    rotate: `rotating to ${area}`,
+    plant: `planting at ${area}`,
+    pinch: `pinching from ${area}`,
+    contest: `contesting ${area}`,
+    investigate: `investigating ${area}`,
+    hunt: `hunting near ${area}`,
+    retake: `retaking ${area}`,
+    reposition: `repositioning ${area}`
+  };
+  return `${bot.codename}: ${map[task] || `moving to ${area}`}`;
+}
+
+function announceBotIntent(bot, task, target) {
+  const now = performance.now() * 0.001;
+  const sameTask = bot.lastTaskCallout === task;
+  const closeTarget = bot.lastTaskTarget && target ? bot.lastTaskTarget.distanceTo(target) < 1.5 : false;
+  if (bot.nextTaskCalloutAt && now < bot.nextTaskCalloutAt && sameTask && closeTarget) return;
+  addFeed(botTaskToCallout(task, bot, target));
+  bot.lastTaskCallout = task;
+  bot.lastTaskTarget = target ? target.clone() : null;
+  bot.nextTaskCalloutAt = now + 5.2 + Math.random() * 1.8;
+}
+
 function makeNameplate(text, color = '#aee0ff') {
   const plate = document.createElement('canvas');
   plate.width = 320;
@@ -814,17 +847,33 @@ function makeMap() {
     const horizontal = doorway.size[0] >= doorway.size[2];
     const rot = horizontal ? 0 : Math.PI / 2;
     const pos = [doorway.center[0], 1.2, doorway.center[2]];
-    const frame = box(1.6, 2.6, 0.28, 0x273242, { roughness: 0.62, metalness: 0.45 });
-    frame.position.set(...pos);
-    frame.rotation.y = rot;
-    world.add(frame);
+    const frameHalfWidth = 0.86;
+    const frameDepth = 0.14;
+    const sideA = box(0.18, 2.6, frameDepth, 0x273242, { roughness: 0.62, metalness: 0.45 });
+    const sideB = box(0.18, 2.6, frameDepth, 0x273242, { roughness: 0.62, metalness: 0.45 });
+    const lintel = box(1.9, 0.18, frameDepth, 0x273242, { roughness: 0.62, metalness: 0.45 });
+    sideA.position.set(pos[0] - frameHalfWidth, pos[1], pos[2]);
+    sideB.position.set(pos[0] + frameHalfWidth, pos[1], pos[2]);
+    lintel.position.set(pos[0], pos[1] + 1.22, pos[2]);
+    [sideA, sideB, lintel].forEach((piece) => {
+      piece.rotation.y = rot;
+      world.add(piece);
+    });
 
-    const door = box(1.2, 2.4, 0.2, 0x6b523c, { roughness: 0.8, emissive: 0x1f1610, emissiveIntensity: 0.2 });
+    const door = box(1.2, 2.4, 0.14, 0x6b523c, { roughness: 0.8, emissive: 0x1f1610, emissiveIntensity: 0.2 });
     door.position.set(...pos);
     door.rotation.y = rot;
     world.add(door);
     visionOccluders.push(door);
-    destructibles.push({ type: 'door', hp: 80, mesh: door, bounds: new THREE.Box3().setFromObject(door), destroyed: false });
+    destructibles.push({
+      type: 'door',
+      hp: 80,
+      mesh: door,
+      spawnPos: door.position.clone(),
+      spawnRot: door.rotation.clone(),
+      bounds: new THREE.Box3().setFromObject(door),
+      destroyed: false
+    });
   });
 
   const weakWall = box(0.4, 2.4, 3.6, 0x735f4d, { map: concreteTex, roughness: 0.92 });
@@ -875,6 +924,44 @@ function makeMap() {
   bombLights.forEach((l) => {
     world.add(l);
     flickerLights.push(l);
+  });
+
+  const tacticalRings = [1.6, 2.3, 3.1];
+  tacticalRings.forEach((radius, i) => {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(radius, 0.035, 10, 42),
+      new THREE.MeshStandardMaterial({
+        color: i % 2 ? 0x7fd4ff : 0x79b6ff,
+        emissive: i % 2 ? 0x1f8fff : 0x2e66d9,
+        emissiveIntensity: 0.9,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false
+      })
+    );
+    ring.position.set(0.2, 0.12 + i * 0.02, -11.2);
+    ring.rotation.x = Math.PI / 2;
+    ring.userData.fxType = 'ring';
+    ring.userData.dir = i % 2 ? -1 : 1;
+    ring.renderOrder = 25;
+    world.add(ring);
+    tacticalFxMeshes.push(ring);
+  });
+
+  const warningBeams = [
+    { pos: new THREE.Vector3(-4.8, 1.85, -11.2), color: 0x59c0ff },
+    { pos: new THREE.Vector3(5.2, 1.85, -11.2), color: 0xff8f6d }
+  ];
+  warningBeams.forEach(({ pos, color }, i) => {
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.14, 3.2, 16, 1, true),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.95, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+    );
+    beam.position.copy(pos);
+    beam.userData.fxType = 'beam';
+    beam.userData.phase = i * Math.PI;
+    world.add(beam);
+    tacticalFxMeshes.push(beam);
   });
 
   const accentA = new THREE.PointLight(0x5ec8ff, 1.1, 21, 2);
@@ -1072,6 +1159,7 @@ function makeBot(team, operator, pos, spawnIndex = 0) {
     squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2, abilityCd: 4 + Math.random() * 5, abilityAnim: 0,
     patrolIndex: spawnIndex % defenderPatrolPoints.length, nameplate, abilityRig,
     hasBomb: false, deathAnim: 0, deathTilt: 0, deathDir: new THREE.Vector3(),
+    lastTaskCallout: '', lastTaskTarget: null, nextTaskCalloutAt: 0,
     routeBias: ((spawnIndex % 2) ? 1 : -1) * (0.9 + Math.random() * 0.7),
     tacticalOffset: new THREE.Vector3((Math.random() - 0.5) * 1.9, 0, (Math.random() - 0.5) * 1.9)
   };
@@ -1913,7 +2001,12 @@ function botThink(bot, dt) {
     target = state.objectivePos.clone().add(new THREE.Vector3((bot.spawnIndex - 1.5) * 0.95, 0, 2.2));
     bot.task = 'retake';
   }
-  if (bot.retreat) target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
+  if (bot.retreat) {
+    target = bot.team === 'atk' ? new THREE.Vector3(-13, 1, 13) : new THREE.Vector3(13, 1, -13);
+    bot.task = 'fallback';
+  }
+
+  announceBotIntent(bot, bot.task, target);
 
   const avoid = new THREE.Vector3();
   squadMates.forEach((ally) => {
@@ -2066,8 +2159,11 @@ function resetRound() {
   destructibles.forEach(d => {
     d.destroyed = false;
     d.mesh.visible = true;
+    if (d.spawnPos) d.mesh.position.copy(d.spawnPos);
+    if (d.spawnRot) d.mesh.rotation.copy(d.spawnRot);
     d.mesh.material.opacity = (d.type === 'glass' || d.type === 'window') ? 0.5 : 1;
     d.hp = (d.type === 'glass' || d.type === 'window') ? 32 : (d.type === 'door' ? 80 : 70);
+    d.bounds.setFromObject(d.mesh);
   });
   world.children.filter(o => o.userData.temp).forEach(o => world.remove(o));
   for (let i = gadgets.length - 1; i >= 0; i--) {
@@ -2339,6 +2435,15 @@ function tick() {
 
   flickerLights.forEach((l, i) => {
     l.intensity = 0.65 + Math.sin(performance.now() * 0.003 + i * 2) * 0.16 + Math.random() * 0.05;
+  });
+  tacticalFxMeshes.forEach((fx, i) => {
+    if (fx.userData.fxType === 'ring') {
+      fx.rotation.z += dt * (0.4 + i * 0.08) * fx.userData.dir;
+      fx.material.opacity = 0.38 + Math.sin(performance.now() * 0.004 + i) * 0.14;
+    } else if (fx.userData.fxType === 'beam') {
+      fx.material.opacity = 0.16 + Math.sin(performance.now() * 0.005 + fx.userData.phase) * 0.09;
+      fx.position.y = 1.75 + Math.sin(performance.now() * 0.003 + i) * 0.16;
+    }
   });
   if (objectiveIntelMesh && objectiveIntelPulse) {
     const intelVisible = state.atkObjectiveKnown && player.team === 'atk';
