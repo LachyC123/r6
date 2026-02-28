@@ -332,6 +332,19 @@ function buildWeaponViewModel() {
   foregrip.position.set(-0.02, -0.12, -0.62);
   gunRoot.add(foregrip);
 
+  const topRail = box(0.04, 0.02, 0.52, 0x2d3644, { roughness: 0.25, metalness: 0.82 });
+  topRail.position.set(0, 0.09, -0.47);
+  gunRoot.add(topRail);
+
+  const accentStripe = box(0.018, 0.018, 0.5, 0x77d7ff, {
+    roughness: 0.2,
+    metalness: 0.65,
+    emissive: 0x2a9ed3,
+    emissiveIntensity: 0.6
+  });
+  accentStripe.position.set(0.05, 0.05, -0.44);
+  gunRoot.add(accentStripe);
+
   const leftGlove = box(0.11, 0.12, 0.18, 0x161b24, { roughness: 0.8, metalness: 0.15 });
   leftGlove.position.set(-0.14, -0.1, -0.58);
   leftGlove.rotation.z = 0.2;
@@ -341,6 +354,10 @@ function buildWeaponViewModel() {
   rightGlove.position.set(0.08, -0.13, -0.2);
   rightGlove.rotation.z = -0.25;
   gunRoot.add(rightGlove);
+
+  const wristScreen = box(0.05, 0.03, 0.04, 0x8ee9ff, { roughness: 0.1, metalness: 0.55, emissive: 0x43c6ff, emissiveIntensity: 0.9 });
+  wristScreen.position.set(0.06, -0.07, -0.28);
+  gunRoot.add(wristScreen);
 
   weaponMuzzle.position.set(0, 0.004, -1.17);
   gunRoot.add(weaponMuzzle);
@@ -615,6 +632,18 @@ function makeMap() {
   floor.receiveShadow = true;
   world.add(floor);
 
+  const exteriorApron = box(58, 0.16, 58, 0x33424f, { roughness: 0.9, metalness: 0.06, emissive: 0x132534, emissiveIntensity: 0.16 });
+  exteriorApron.position.y = -0.18;
+  world.add(exteriorApron);
+
+  const perimeterLane = new THREE.Mesh(
+    new THREE.RingGeometry(20, 27, 52),
+    new THREE.MeshStandardMaterial({ color: 0x3a4b5f, roughness: 0.84, metalness: 0.08, emissive: 0x1c2f45, emissiveIntensity: 0.16, side: THREE.DoubleSide })
+  );
+  perimeterLane.rotation.x = -Math.PI / 2;
+  perimeterLane.position.y = -0.09;
+  world.add(perimeterLane);
+
   const ceiling = box(30, 0.3, 30, 0x71859b, { map: trimTex, roughness: 0.88, metalness: 0.2 });
   ceiling.position.y = 4;
   world.add(ceiling);
@@ -748,6 +777,37 @@ function makeMap() {
     });
     banner.position.set(x, y, z);
     world.add(banner);
+  });
+
+  const exteriorStructures = [
+    [-21, 2.6, -16, 5.8, 5.2, 4.8, 0x2f3c4a],
+    [22, 2.1, 15, 7.2, 4.2, 4.4, 0x3a3342],
+    [-23, 1.8, 14, 4.6, 3.6, 5.6, 0x354252],
+    [19.5, 2.7, -18, 6.4, 5.4, 5.2, 0x423a34]
+  ];
+  exteriorStructures.forEach(([x, y, z, w, h, d, color], i) => {
+    const structure = box(w, h, d, color, { roughness: 0.9, metalness: 0.06, emissive: i % 2 ? 0x15202f : 0x2a1f1f, emissiveIntensity: 0.18 });
+    structure.position.set(x, y, z);
+    world.add(structure);
+  });
+
+  const policeVans = [
+    [-17.2, 0.7, 12.4, 0x304c80, 0x6ec5ff],
+    [17.2, 0.7, -12.1, 0x5f3f2e, 0xffb182]
+  ];
+  policeVans.forEach(([x, y, z, bodyColor, lightColor]) => {
+    const van = box(2.8, 1.4, 1.4, bodyColor, { roughness: 0.5, metalness: 0.45 });
+    van.position.set(x, y, z);
+    world.add(van);
+
+    const beacon = box(0.5, 0.08, 0.25, lightColor, {
+      roughness: 0.2,
+      metalness: 0.65,
+      emissive: lightColor,
+      emissiveIntensity: 0.95
+    });
+    beacon.position.set(x, y + 0.76, z);
+    world.add(beacon);
   });
 
   doorwayDefs.forEach((doorway) => {
@@ -966,6 +1026,17 @@ function makeBot(team, operator, pos, spawnIndex = 0) {
   });
   abilityRig.position.set(0, 0.38, 0.3);
   m.add(abilityRig);
+
+  const kneeL = box(0.18, 0.12, 0.2, team === 'atk' ? 0x31465f : 0x5d3b3b, { roughness: 0.52, metalness: 0.3 });
+  kneeL.position.set(-0.18, -0.62, -0.04);
+  m.add(kneeL);
+  const kneeR = kneeL.clone();
+  kneeR.position.x = 0.18;
+  m.add(kneeR);
+
+  const commAntenna = box(0.05, 0.28, 0.05, 0x1d2532, { roughness: 0.4, metalness: 0.48, emissive: design.accent || 0x3d7bc7, emissiveIntensity: 0.28 });
+  commAntenna.position.set(0, 0.8, 0.26);
+  m.add(commAntenna);
 
   const nameplate = makeNameplate(`${design.codename || role} · ${role}`, team === 'atk' ? '#8fd0ff' : '#ffae99');
   nameplate.position.set(0, 1.45, 0);
@@ -1228,8 +1299,13 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
       }
     } else if (hitDes) {
       const dObj = destructibles.find(x => x.mesh === hitDes.object);
-      dObj.hp -= damage;
-      if (dObj.hp <= 0 && !dObj.destroyed) destroyDestructible(dObj);
+      if (dObj.type === 'door') {
+        dObj.hp = 0;
+        if (!dObj.destroyed) destroyDestructible(dObj);
+      } else {
+        dObj.hp -= damage;
+        if (dObj.hp <= 0 && !dObj.destroyed) destroyDestructible(dObj);
+      }
     }
   }
   makeNoise(shotStart, shooter === player ? 9.2 : 7.2, shooter.team || null);
@@ -1274,6 +1350,14 @@ function destroyDestructible(d) {
       bullets.push({ mesh: shard, vel: new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2), life: 1.2 });
     }
   } else {
+    const debrisColor = d.type === 'door' ? 0x7b5d42 : 0x65686f;
+    const chunkCount = d.type === 'door' ? 9 : 14;
+    for (let i = 0; i < chunkCount; i++) {
+      const chunk = box(0.12 + Math.random() * 0.14, 0.08 + Math.random() * 0.08, 0.08 + Math.random() * 0.14, debrisColor, { roughness: 0.88, metalness: 0.08 });
+      chunk.position.copy(d.mesh.position).add(new THREE.Vector3((Math.random() - 0.5) * 1.2, 0.3 + Math.random() * 1.6, (Math.random() - 0.5) * 1.2));
+      world.add(chunk);
+      bullets.push({ mesh: chunk, vel: new THREE.Vector3((Math.random() - 0.5) * 4.8, 1.5 + Math.random() * 2.4, (Math.random() - 0.5) * 4.8), life: 0.9 + Math.random() * 0.6 });
+    }
     d.mesh.visible = false;
   }
   addFeed(`${d.type.toUpperCase()} breached`);
