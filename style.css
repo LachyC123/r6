@@ -160,3 +160,90 @@ html, body {
   0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.92; }
   50% { transform: translate(-50%, -50%) scale(1.06); opacity: 1; }
 }
+
+
+#mobileControls {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+#movePad, #lookPad, #mobileActions {
+  pointer-events: auto;
+}
+#movePad {
+  position: absolute;
+  left: 18px;
+  bottom: 20px;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  touch-action: none;
+}
+.pad-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(160, 205, 255, 0.4);
+  border-radius: 50%;
+  background: rgba(5, 14, 27, 0.35);
+}
+.pad-stick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(120, 180, 255, 0.38);
+  border: 1px solid rgba(180, 220, 255, 0.75);
+}
+#lookPad {
+  position: absolute;
+  right: 16px;
+  top: 18%;
+  width: 44vw;
+  max-width: 320px;
+  height: 36vh;
+  border-radius: 14px;
+  border: 1px dashed rgba(144, 198, 255, 0.4);
+  background: rgba(6, 14, 28, 0.1);
+  color: rgba(190, 222, 255, 0.7);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+#mobileActions {
+  position: absolute;
+  right: 14px;
+  bottom: 16px;
+  width: min(60vw, 360px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.touch-btn {
+  border: 1px solid rgba(140, 186, 255, 0.42);
+  border-radius: 8px;
+  color: var(--fg);
+  background: rgba(8, 20, 36, 0.75);
+  font-weight: 600;
+  font-size: 10px;
+  padding: 9px 4px;
+  touch-action: none;
+}
+.touch-btn.primary {
+  background: rgba(75, 130, 255, 0.6);
+}
+.touch-btn.active {
+  background: rgba(96, 168, 255, 0.75);
+  border-color: rgba(188, 228, 255, 0.85);
+}
+
+@media (pointer: coarse), (max-width: 900px) {
+  #mobileControls {
+    display: block;
+  }
+}

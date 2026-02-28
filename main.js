@@ -32,7 +32,26 @@ const ui = {
   gadgetB: document.getElementById('gadgetB'),
   feed: document.getElementById('feed'),
   scoreboard: document.getElementById('scoreboard'),
-  teamRole: document.getElementById('teamRole')
+  teamRole: document.getElementById('teamRole'),
+  hint: document.getElementById('hint'),
+  mobileControls: document.getElementById('mobileControls'),
+  movePad: document.getElementById('movePad'),
+  moveStick: document.getElementById('moveStick'),
+  lookPad: document.getElementById('lookPad'),
+  btnFire: document.getElementById('btnFire'),
+  btnAds: document.getElementById('btnAds'),
+  btnSprint: document.getElementById('btnSprint'),
+  btnCrouch: document.getElementById('btnCrouch'),
+  btnWalk: document.getElementById('btnWalk'),
+  btnLeanL: document.getElementById('btnLeanL'),
+  btnLeanR: document.getElementById('btnLeanR'),
+  btnReload: document.getElementById('btnReload'),
+  btnGadgetA: document.getElementById('btnGadgetA'),
+  btnGadgetB: document.getElementById('btnGadgetB'),
+  btnMelee: document.getElementById('btnMelee'),
+  btnDrone: document.getElementById('btnDrone'),
+  btnCams: document.getElementById('btnCams'),
+  btnPing: document.getElementById('btnPing')
 };
 
 const ambient = new THREE.HemisphereLight(0xb4cfff, 0x070c14, 1.05);
@@ -64,6 +83,165 @@ const state = {
 
 const input = { keys: {}, mouseDx: 0, mouseDy: 0, ads: false, fire: false, lean: 0, melee: false };
 const raycaster = new THREE.Raycaster();
+
+const mobile = {
+  enabled: window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window,
+  movePointerId: null,
+  lookPointerId: null,
+  lookLastX: 0,
+  lookLastY: 0,
+  moveX: 0,
+  moveY: 0,
+  sprint: false,
+  crouch: false,
+  walk: false,
+  ads: false,
+  fire: false,
+  lean: 0
+};
+
+function setupMobileControls() {
+  if (!mobile.enabled || !ui.mobileControls) return;
+  ui.mobileControls.classList.remove('hidden');
+  ui.mobileControls.setAttribute('aria-hidden', 'false');
+  if (ui.hint) ui.hint.textContent = 'Mobile: left pad move · right look area aim · touch buttons for all actions';
+
+  const setStick = (x, y) => {
+    ui.moveStick.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+  };
+
+  ui.movePad.addEventListener('pointerdown', (e) => {
+    mobile.movePointerId = e.pointerId;
+    ui.movePad.setPointerCapture(e.pointerId);
+  });
+
+  ui.movePad.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== mobile.movePointerId) return;
+    const rect = ui.movePad.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = e.clientX - cx;
+    const dy = e.clientY - cy;
+    const radius = rect.width * 0.36;
+    const len = Math.hypot(dx, dy);
+    const scale = len > radius ? radius / len : 1;
+    const clampedX = dx * scale;
+    const clampedY = dy * scale;
+    mobile.moveX = clampedX / radius;
+    mobile.moveY = clampedY / radius;
+    setStick(clampedX, clampedY);
+  });
+
+  const resetMove = (e) => {
+    if (e.pointerId !== mobile.movePointerId) return;
+    mobile.movePointerId = null;
+    mobile.moveX = 0;
+    mobile.moveY = 0;
+    setStick(0, 0);
+  };
+  ui.movePad.addEventListener('pointerup', resetMove);
+  ui.movePad.addEventListener('pointercancel', resetMove);
+
+  ui.lookPad.addEventListener('pointerdown', (e) => {
+    mobile.lookPointerId = e.pointerId;
+    mobile.lookLastX = e.clientX;
+    mobile.lookLastY = e.clientY;
+    ui.lookPad.setPointerCapture(e.pointerId);
+  });
+  ui.lookPad.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== mobile.lookPointerId) return;
+    const dx = e.clientX - mobile.lookLastX;
+    const dy = e.clientY - mobile.lookLastY;
+    mobile.lookLastX = e.clientX;
+    mobile.lookLastY = e.clientY;
+    input.mouseDx += dx * 1.8;
+    input.mouseDy += dy * 1.8;
+  });
+  const resetLook = (e) => {
+    if (e.pointerId !== mobile.lookPointerId) return;
+    mobile.lookPointerId = null;
+  };
+  ui.lookPad.addEventListener('pointerup', resetLook);
+  ui.lookPad.addEventListener('pointercancel', resetLook);
+
+  const bindHold = (el, setter) => {
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => {
+      el.setPointerCapture(e.pointerId);
+      setter(true);
+      el.classList.add('active');
+    });
+    const off = () => {
+      setter(false);
+      el.classList.remove('active');
+    };
+    el.addEventListener('pointerup', off);
+    el.addEventListener('pointercancel', off);
+  };
+
+  bindHold(ui.btnFire, (v) => { mobile.fire = v; });
+  bindHold(ui.btnAds, (v) => { mobile.ads = v; });
+  bindHold(ui.btnSprint, (v) => { mobile.sprint = v; });
+
+  const bindTap = (el, fn) => {
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      fn();
+      el.classList.add('active');
+      setTimeout(() => el.classList.remove('active'), 120);
+    });
+  };
+
+  bindTap(ui.btnCrouch, () => {
+    mobile.crouch = !mobile.crouch;
+    ui.btnCrouch.classList.toggle('active', mobile.crouch);
+  });
+  bindTap(ui.btnWalk, () => {
+    mobile.walk = !mobile.walk;
+    ui.btnWalk.classList.toggle('active', mobile.walk);
+  });
+
+  bindHold(ui.btnLeanL, (v) => {
+    if (v) mobile.lean = -1;
+    else if (mobile.lean === -1) mobile.lean = 0;
+  });
+  bindHold(ui.btnLeanR, (v) => {
+    if (v) mobile.lean = 1;
+    else if (mobile.lean === 1) mobile.lean = 0;
+  });
+
+  bindTap(ui.btnReload, () => {
+    if (player.ammo < 30 && player.reserve > 0) {
+      const need = Math.min(30 - player.ammo, player.reserve);
+      player.ammo += need;
+      player.reserve -= need;
+      beep(350, 0.05);
+    }
+  });
+  bindTap(ui.btnGadgetA, () => placeBreachCharge());
+  bindTap(ui.btnGadgetB, () => pulseScan());
+  bindTap(ui.btnMelee, () => { input.melee = true; });
+  bindTap(ui.btnDrone, () => deployDrone(true));
+  bindTap(ui.btnCams, () => { if (!(state.phase === 'prep' && player.team === 'atk')) cycleCams(); });
+  bindTap(ui.btnPing, () => addPing((player.droneActive && player.droneMesh) ? player.droneMesh.position.clone() : player.pos.clone(), player.team));
+}
+
+function applyMobileInput() {
+  if (!mobile.enabled) return;
+  const dead = 0.18;
+  input.keys['KeyA'] = mobile.moveX < -dead;
+  input.keys['KeyD'] = mobile.moveX > dead;
+  input.keys['KeyW'] = mobile.moveY < -dead;
+  input.keys['KeyS'] = mobile.moveY > dead;
+  input.keys['ShiftLeft'] = mobile.sprint;
+  input.keys['ControlLeft'] = mobile.crouch;
+  input.keys['AltLeft'] = mobile.walk;
+  input.fire = mobile.fire;
+  input.ads = mobile.ads;
+  input.lean = mobile.lean;
+}
+
 
 const colliders = [];
 const destructibles = [];
@@ -1322,7 +1500,7 @@ function resetRound() {
 }
 
 document.body.addEventListener('click', async () => {
-  if (document.pointerLockElement !== document.body) document.body.requestPointerLock();
+  if (!mobile.enabled && document.pointerLockElement !== document.body) document.body.requestPointerLock();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
 });
 window.addEventListener('mousemove', (e) => {
@@ -1350,6 +1528,7 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('mousedown', (e) => { if (e.button === 0) input.fire = true; if (e.button === 2) input.ads = true; });
 window.addEventListener('mouseup', (e) => { if (e.button === 0) input.fire = false; if (e.button === 2) input.ads = false; });
 window.addEventListener('contextmenu', (e) => e.preventDefault());
+setupMobileControls();
 
 let shootCd = 0;
 let footTimer = 0;
@@ -1500,6 +1679,7 @@ function tick() {
     player.pingCd -= dt;
     shakeT = Math.max(0, shakeT - dt * 2.4);
 
+    applyMobileInput();
     gamepadUpdate();
     updatePlayer(dt);
     bots.forEach(b => botThink(b, dt));
