@@ -78,6 +78,9 @@ const state = {
   score: { atk: 0, def: 0 },
   bombPlanted: false,
   bombTimer: 45,
+  bombCarrier: null,
+  bombDropped: false,
+  bombDropPos: new THREE.Vector3(),
   gameOver: false,
   objectivePos: new THREE.Vector3(0.2, 0, -11.2),
   atkObjectiveKnown: false
@@ -258,6 +261,9 @@ const visionOccluders = [];
 const doorways = [];
 const noiseEvents = [];
 const rainDrops = [];
+let bombCarryMesh;
+let bombDropCore;
+let bombDropRing;
 const breachSignals = [];
 let objectiveIntelMesh;
 let objectiveIntelPulse;
@@ -798,10 +804,26 @@ function makeMap() {
 }
 makeMap();
 
+function makeBombVisuals() {
+  bombCarryMesh = box(0.18, 0.18, 0.18, 0xffd26d, { emissive: 0xd38c22, emissiveIntensity: 1.1, roughness: 0.32, metalness: 0.28 });
+  bombCarryMesh.visible = false;
+  world.add(bombCarryMesh);
+
+  bombDropCore = box(0.2, 0.2, 0.2, 0xffca4f, { emissive: 0xe1941f, emissiveIntensity: 1.2, roughness: 0.36, metalness: 0.24 });
+  bombDropCore.visible = false;
+  world.add(bombDropCore);
+
+  bombDropRing = new THREE.Mesh(new THREE.RingGeometry(0.38, 0.62, 24), new THREE.MeshBasicMaterial({ color: 0xffe08b, transparent: true, opacity: 0.8, side: THREE.DoubleSide }));
+  bombDropRing.rotation.x = -Math.PI / 2;
+  bombDropRing.visible = false;
+  world.add(bombDropRing);
+}
+makeBombVisuals();
+
 const player = {
   team: 'atk', role: 'Planbreaker', hp: 100, pos: new THREE.Vector3(-16, 1.7, 12), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   grounded: true, crouch: false, sprint: false, ammo: 30, reserve: 90, recoil: 0, spread: 0.015,
-  breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, alive: true
+  breachCharges: 2, pulseCd: 0, pulseReady: true, droneActive: false, camMode: false, pingCd: 0, alive: true, hasBomb: false
 };
 camera.position.copy(player.pos);
 
@@ -909,8 +931,99 @@ function makeBot(team, role, pos, spawnIndex = 0) {
     cornerIndex: spawnIndex % roomClearCorners.length, cornerLookTimer: 0.5 + Math.random() * 1.2,
     scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0, hearing: 1.1 + Math.random() * 0.4,
     squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2,
-    patrolIndex: spawnIndex % defenderPatrolPoints.length
+    patrolIndex: spawnIndex % defenderPatrolPoints.length,
+    hasBomb: false
   };
+}
+
+function entityLabel(entity) {
+  if (!entity) return 'Unknown';
+  return entity === player ? 'You' : entity.role;
+}
+
+function setBombCarrier(entity, announce = true) {
+  player.hasBomb = false;
+  bots.forEach((b) => { b.hasBomb = false; });
+  state.bombCarrier = entity || null;
+  state.bombDropped = false;
+  if (entity) {
+    entity.hasBomb = true;
+    if (announce) addFeed(`${entityLabel(entity)} secured the Rift Charge`);
+  }
+}
+
+function dropBombFrom(entity, pos) {
+  if (!entity?.hasBomb || state.bombPlanted) return;
+  entity.hasBomb = false;
+  if (state.bombCarrier === entity) state.bombCarrier = null;
+  state.bombDropped = true;
+  state.bombDropPos.copy(pos).setY(0.14);
+  addFeed(`Rift Charge dropped by ${entityLabel(entity)}`);
+}
+
+function tryPickupDroppedBomb(entity, pos) {
+  if (!state.bombDropped || entity.team !== 'atk' || entity.dead || entity.hp <= 0 || state.bombPlanted) return false;
+  if (pos.distanceTo(state.bombDropPos) > 1.2) return false;
+  setBombCarrier(entity, false);
+  addFeed(`${entityLabel(entity)} recovered the Rift Charge`);
+  return true;
+}
+
+function onBotEliminated(bot, killerLabel, hitPos = null) {
+  if (bot.dead) return;
+  bot.dead = true;
+  bot.mesh.visible = false;
+  if (bot.hasBomb) dropBombFrom(bot, bot.mesh.position);
+  if (killerLabel) addFeed(`${killerLabel} eliminated ${bot.role} at ${getAreaNameFromPos(hitPos || bot.mesh.position).toUpperCase()}`);
+}
+
+function onPlayerEliminated(reason = 'You were neutralized') {
+  if (!player.alive) return;
+  player.alive = false;
+  if (player.hasBomb) dropBombFrom(player, player.pos);
+  addFeed(reason);
+}
+
+function assignRoundBombCarrier() {
+  const choices = bots.filter((b) => b.team === 'atk' && !b.dead);
+  if (player.team === 'atk' && player.alive) choices.push(player);
+  const pick = choices.length ? choices[Math.floor(Math.random() * choices.length)] : null;
+  setBombCarrier(pick, !!pick);
+}
+
+function updateBombVisuals(dt) {
+  if (!bombCarryMesh || !bombDropCore || !bombDropRing) return;
+  const pulse = 0.95 + Math.sin(performance.now() * 0.009) * 0.1;
+  if (state.bombPlanted) {
+    bombCarryMesh.visible = false;
+    bombDropCore.visible = false;
+    bombDropRing.visible = false;
+    return;
+  }
+
+  if (state.bombCarrier?.hasBomb) {
+    const anchor = state.bombCarrier === player ? player.pos : state.bombCarrier.mesh.position;
+    bombCarryMesh.visible = true;
+    bombCarryMesh.position.copy(anchor).add(new THREE.Vector3(0, 0.2, 0));
+    bombCarryMesh.rotation.y += dt * 1.8;
+    bombCarryMesh.scale.setScalar(pulse);
+  } else {
+    bombCarryMesh.visible = false;
+  }
+
+  if (state.bombDropped) {
+    bombDropCore.visible = true;
+    bombDropRing.visible = true;
+    bombDropCore.position.copy(state.bombDropPos);
+    bombDropCore.rotation.y += dt * 2.6;
+    bombDropCore.scale.setScalar(0.95 + Math.sin(performance.now() * 0.011) * 0.08);
+    bombDropRing.position.copy(state.bombDropPos).setY(0.05);
+    bombDropRing.scale.setScalar(1 + Math.sin(performance.now() * 0.008) * 0.16);
+    bombDropRing.material.opacity = 0.62 + Math.sin(performance.now() * 0.012) * 0.25;
+  } else {
+    bombDropCore.visible = false;
+    bombDropRing.visible = false;
+  }
 }
 
 function spawnTeams() {
@@ -929,6 +1042,7 @@ function spawnTeams() {
   }
 }
 spawnTeams();
+assignRoundBombCarrier();
 
 const roomZones = [
   { name: 'Bomb Room', min: new THREE.Vector3(-4.2, 0, -14.8), max: new THREE.Vector3(4.5, 4, -7.8) },
@@ -994,8 +1108,12 @@ function updateUI() {
       : 'Prep Phase: Defenders barricade, place traps, and fortify the site before action starts.';
   } else if (state.bombPlanted) {
     ui.objective.innerHTML = '<span class="warn">Post-Plant: Defend the Rift Charge detonation.</span>';
+  } else if (state.bombDropped) {
+    ui.objective.innerHTML = '<span class="warn">Rift Charge dropped. Attackers must recover it before planting.</span>';
   } else {
-    ui.objective.innerHTML = 'Action Phase: Attack through windows, clear rooms, and plant in Bomb Room.';
+    ui.objective.innerHTML = state.bombCarrier?.hasBomb
+      ? `${entityLabel(state.bombCarrier)} has the Rift Charge. Reach Bomb Room and plant.`
+      : 'Action Phase: Attack through windows, clear rooms, and plant in Bomb Room.';
   }
 }
 
@@ -1022,8 +1140,7 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
       b.hp -= damage * (headshot ? 2 : 1) * (1 - armorMitigation);
       if (!headshot && b.armor) b.armor = Math.max(0, b.armor - damage * 0.45);
       if (b.hp <= 0) {
-        b.dead = true; b.mesh.visible = false;
-        addFeed(`${shooter === player ? 'You' : shooter.role} eliminated ${b.role} at ${getAreaNameFromPos(p).toUpperCase()}`);
+        onBotEliminated(b, shooter === player ? 'You' : shooter.role, p);
       }
     } else if (hitDes) {
       const dObj = destructibles.find(x => x.mesh === hitDes.object);
@@ -1170,6 +1287,7 @@ function beginActionPhase() {
       bot.entryPathIndex = 0;
     }
   });
+  assignRoundBombCarrier();
 }
 
 function cycleCams() {
@@ -1186,7 +1304,7 @@ function cycleCams() {
 function plantOrDefuse(dt) {
   const near = player.pos.distanceTo(state.objectivePos) < 2.2;
   if (!near) { player.plantProg = 0; player.defProg = 0; return; }
-  if (player.team === 'atk' && state.phase === 'action' && !state.bombPlanted && input.keys['KeyX']) {
+  if (player.team === 'atk' && player.hasBomb && state.phase === 'action' && !state.bombPlanted && input.keys['KeyX']) {
     player.plantProg = (player.plantProg || 0) + dt;
     if (player.plantProg > 3) {
       state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant; player.plantProg = 0;
@@ -1417,6 +1535,8 @@ function botThink(bot, dt) {
     bot.gadgetCd = 8 + Math.random() * 4;
   }
 
+  if (bot.team === 'atk' && !bot.hasBomb) tryPickupDroppedBomb(bot, myPos);
+
   let target = state.objectivePos.clone();
   let aimPoint = visible ? (visible.mesh ? visible.mesh.position.clone() : visible.pos.clone()) : null;
   const activeBreach = getRoleBreachPoint(bot) || getClosestEntryPoint(myPos);
@@ -1458,7 +1578,7 @@ function botThink(bot, dt) {
       }
       const corner = roomClearCorners[(bot.cornerIndex + bot.spawnIndex) % roomClearCorners.length].clone();
       const executeOffset = attackerExecuteOffsets[bot.role] || new THREE.Vector3();
-      target = (bot.role === 'Planter' && !state.bombPlanted)
+      target = ((bot.role === 'Planter' || bot.hasBomb) && !state.bombPlanted)
         ? state.objectivePos.clone().add(executeOffset)
         : corner;
       if (!visible) aimPoint = corner;
@@ -1487,8 +1607,13 @@ function botThink(bot, dt) {
     if (!visible) aimPoint = flank;
   }
 
-  if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter' && !activeBreach) {
+  if (bot.team === 'atk' && state.atkObjectiveKnown && bot.role !== 'Planter' && !bot.hasBomb && !activeBreach) {
     target = state.objectivePos.clone().add(attackerExecuteOffsets[bot.role] || new THREE.Vector3(0, 0, 2));
+  }
+
+  if (bot.team === 'atk' && bot.hasBomb && !state.bombPlanted) {
+    target = state.objectivePos.clone();
+    bot.task = 'plant';
   }
 
   if (!visible && state.phase === 'action' && enemy.length) {
@@ -1573,14 +1698,14 @@ function botThink(bot, dt) {
         const armorMitigation = player.crouch ? 0.18 : 0.1;
         player.hp -= (13 + Math.random() * 9) * (1 - armorMitigation);
         shakeT = 0.12;
-        if (player.hp <= 0 && player.alive) { player.alive = false; addFeed('You were neutralized'); }
+        if (player.hp <= 0 && player.alive) onPlayerEliminated('You were neutralized');
       }
     }
   }
 
   animateBotPose(bot, dt, moveAmount, aimPoint, !!visible || bot.task === 'breach');
 
-  if (bot.team === 'atk' && bot.role === 'Planter' && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 1.8) {
+  if (bot.team === 'atk' && bot.hasBomb && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 1.8) {
     bot.plant = (bot.plant || 0) + dt;
     if (bot.plant > 3) {
       state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant;
@@ -1595,7 +1720,7 @@ function botThink(bot, dt) {
     }
   });
 
-  if (bot.hp <= 0) { bot.dead = true; bot.mesh.visible = false; }
+  if (bot.hp <= 0) onBotEliminated(bot);
 }
 
 function endRound(winner) {
@@ -1627,8 +1752,11 @@ function resetRound() {
   state.atkObjectiveKnown = false;
   state.bombPlanted = false;
   state.bombTimer = state.phaseConfig.postPlant;
+  state.bombDropped = false;
+  state.bombCarrier = null;
   player.hp = 100;
   player.alive = true;
+  player.hasBomb = false;
   const resetSpawn = findSafeGroundPosition(teamSpawns[player.team][0], { outsideOnly: player.team === 'atk', radius: 1.8 });
   player.pos.copy(resetSpawn).setY(1.7);
   player.vel.set(0, 0, 0);
@@ -1647,6 +1775,7 @@ function resetRound() {
     if (gadgets[i].temp) gadgets.splice(i, 1);
   }
   spawnTeams();
+  assignRoundBombCarrier();
 }
 
 document.body.addEventListener('click', async () => {
@@ -1794,6 +1923,7 @@ function updatePlayer(dt) {
   }
 
   if (input.keys['KeyC']) addPing(player.pos.clone(), player.team);
+  if (player.team === 'atk' && player.alive) tryPickupDroppedBomb(player, player.pos);
   plantOrDefuse(dt);
 }
 
@@ -1823,9 +1953,10 @@ function tick() {
     if (state.bombPlanted && state.bombTimer <= 0) endRound('atk');
 
     if (state.phase === 'action' || state.bombPlanted) {
-      if (bots.filter(b => !b.dead && b.team === 'atk').length === 0 && player.team === 'atk') endRound('def');
-      if (bots.filter(b => !b.dead && b.team === 'def').length === 0 && player.team === 'atk') endRound('atk');
-      if (!player.alive && player.team === 'atk' && bots.filter(b => !b.dead && b.team === 'atk').length === 0) endRound('def');
+      const atkAlive = bots.filter((b) => !b.dead && b.team === 'atk').length + (player.team === 'atk' && player.alive ? 1 : 0);
+      const defAlive = bots.filter((b) => !b.dead && b.team === 'def').length + (player.team === 'def' && player.alive ? 1 : 0);
+      if (atkAlive === 0) endRound('def');
+      if (defAlive === 0) endRound('atk');
     }
 
     player.pulseCd -= dt;
@@ -1837,6 +1968,7 @@ function tick() {
     gamepadUpdate();
     updatePlayer(dt);
     bots.forEach(b => { b.suppressing = Math.max(0, b.suppressing - dt); botThink(b, dt); });
+    updateBombVisuals(dt);
 
     gadgets.forEach(g => {
       if (g.type === 'charge') {
