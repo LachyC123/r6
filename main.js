@@ -1,14 +1,15 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js';
 
 const canvas = document.getElementById('game');
+const lowSpecMode = window.matchMedia('(max-width: 900px), (pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.physicallyCorrectLights = true;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = !lowSpecMode;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.55;
+renderer.toneMappingExposure = lowSpecMode ? 1.42 : 1.55;
 renderer.setClearColor(0x7eb6ff);
 
 const scene = new THREE.Scene();
@@ -66,7 +67,7 @@ const ambient = new THREE.HemisphereLight(0xd7ebff, 0x6f8aa9, 1.42);
 scene.add(ambient);
 const keyLight = new THREE.DirectionalLight(0xfff1d4, 2.8);
 keyLight.position.set(8, 16, 4);
-keyLight.castShadow = true;
+keyLight.castShadow = !lowSpecMode;
 scene.add(keyLight);
 const bounceLight = new THREE.PointLight(0x9cc7ff, 32, 62, 2);
 bounceLight.position.set(0, 6, 2);
@@ -1056,18 +1057,20 @@ function makeMap() {
     world.add(strip);
   });
 
-  const bombLights = [
-    new THREE.PointLight(0xff4f4f, 0.86, 12, 2),
-    new THREE.PointLight(0x4f8dff, 0.65, 11, 2),
-    new THREE.PointLight(0xffb16a, 0.5, 8, 2)
-  ];
-  bombLights[0].position.set(-1.2, 1.2, -11.2);
-  bombLights[1].position.set(1.5, 1.2, -11.2);
-  bombLights[2].position.set(0.2, 2.5, -9.8);
-  bombLights.forEach((l) => {
-    world.add(l);
-    flickerLights.push(l);
-  });
+  if (!lowSpecMode) {
+    const bombLights = [
+      new THREE.PointLight(0xff4f4f, 0.86, 12, 2),
+      new THREE.PointLight(0x4f8dff, 0.65, 11, 2),
+      new THREE.PointLight(0xffb16a, 0.5, 8, 2)
+    ];
+    bombLights[0].position.set(-1.2, 1.2, -11.2);
+    bombLights[1].position.set(1.5, 1.2, -11.2);
+    bombLights[2].position.set(0.2, 2.5, -9.8);
+    bombLights.forEach((l) => {
+      world.add(l);
+      flickerLights.push(l);
+    });
+  }
 
   const tacticalRings = [1.6, 2.3, 3.1];
   tacticalRings.forEach((radius, i) => {
@@ -1107,23 +1110,25 @@ function makeMap() {
     tacticalFxMeshes.push(beam);
   });
 
-  const accentA = new THREE.PointLight(0x5ec8ff, 1.1, 21, 2);
-  accentA.position.set(-9.5, 2.8, -6.5);
-  world.add(accentA);
-  flickerLights.push(accentA);
+  if (!lowSpecMode) {
+    const accentA = new THREE.PointLight(0x5ec8ff, 1.1, 21, 2);
+    accentA.position.set(-9.5, 2.8, -6.5);
+    world.add(accentA);
+    flickerLights.push(accentA);
 
-  const accentB = new THREE.PointLight(0x8dffd2, 0.95, 18, 2);
-  accentB.position.set(7.2, 2.4, 6.8);
-  world.add(accentB);
-  flickerLights.push(accentB);
+    const accentB = new THREE.PointLight(0x8dffd2, 0.95, 18, 2);
+    accentB.position.set(7.2, 2.4, 6.8);
+    world.add(accentB);
+    flickerLights.push(accentB);
 
-  const policeBlue = new THREE.PointLight(0x3e8dff, 1.2, 20, 2);
-  policeBlue.position.set(-13.8, 3.2, 12.4);
-  world.add(policeBlue);
-  const policeAmber = new THREE.PointLight(0xff9a63, 1.1, 20, 2);
-  policeAmber.position.set(13.8, 3.1, -12.6);
-  world.add(policeAmber);
-  flickerLights.push(policeBlue, policeAmber);
+    const policeBlue = new THREE.PointLight(0x3e8dff, 1.2, 20, 2);
+    policeBlue.position.set(-13.8, 3.2, 12.4);
+    world.add(policeBlue);
+    const policeAmber = new THREE.PointLight(0xff9a63, 1.1, 20, 2);
+    policeAmber.position.set(13.8, 3.1, -12.6);
+    world.add(policeAmber);
+    flickerLights.push(policeBlue, policeAmber);
+  }
 
   const rainGeo = new THREE.BoxGeometry(0.025, 0.42, 0.025);
   const rainMat = new THREE.MeshBasicMaterial({ color: 0x9ecbff, transparent: true, opacity: 0.26 });
