@@ -567,6 +567,74 @@ function addFeed(text) {
   while (ui.feed.children.length > 6) ui.feed.lastChild.remove();
 }
 
+function makeSpeechBubble(color = '#c9ecff') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d');
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  sprite.scale.set(2.8, 1.02, 1);
+  sprite.position.set(0, 2.05, 0);
+  sprite.renderOrder = 40;
+  sprite.visible = false;
+
+  return {
+    sprite,
+    canvas,
+    ctx,
+    tex,
+    color,
+    life: 0,
+    setText(text) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(8, 16, 32, 0.86)';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.roundRect(14, 14, canvas.width - 28, 126, 22);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(168, 140);
+      ctx.lineTo(210, 176);
+      ctx.lineTo(236, 140);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = '600 34px Inter';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const maxWidth = canvas.width - 62;
+      const words = text.toUpperCase().split(' ');
+      const lines = [];
+      let line = '';
+      words.forEach((word) => {
+        const probe = line ? `${line} ${word}` : word;
+        if (ctx.measureText(probe).width > maxWidth && line) {
+          lines.push(line);
+          line = word;
+        } else line = probe;
+      });
+      if (line) lines.push(line);
+      const trimmed = lines.slice(0, 2);
+      trimmed.forEach((l, i) => {
+        ctx.fillText(l, canvas.width / 2, 63 + i * 36);
+      });
+      tex.needsUpdate = true;
+      sprite.visible = true;
+    }
+  };
+}
+
+function pushBotCallout(bot, text, duration = 2.7) {
+  if (!bot?.speech) return;
+  bot.speech.setText(text);
+  bot.speech.life = duration;
+}
+
 function botTaskToCallout(task, bot, target) {
   const area = target ? getAreaNameFromPos(target).toUpperCase() : 'CURRENT POSITION';
   const map = {
@@ -593,7 +661,7 @@ function announceBotIntent(bot, task, target) {
   const sameTask = bot.lastTaskCallout === task;
   const closeTarget = bot.lastTaskTarget && target ? bot.lastTaskTarget.distanceTo(target) < 1.5 : false;
   if (bot.nextTaskCalloutAt && now < bot.nextTaskCalloutAt && sameTask && closeTarget) return;
-  addFeed(botTaskToCallout(task, bot, target));
+  pushBotCallout(bot, botTaskToCallout(task, bot, target), 2.5);
   bot.lastTaskCallout = task;
   bot.lastTaskTarget = target ? target.clone() : null;
   bot.nextTaskCalloutAt = now + 5.2 + Math.random() * 1.8;
@@ -843,6 +911,42 @@ function makeMap() {
     world.add(beacon);
   });
 
+  const roadsideCover = [
+    [-18.6, 0.52, -6.5], [-17.4, 0.52, -6.5], [18.8, 0.52, 6.2], [17.6, 0.52, 6.2],
+    [-20.2, 0.52, 6.8], [20.3, 0.52, -6.8]
+  ];
+  roadsideCover.forEach(([x, y, z], i) => {
+    const jersey = box(1, 1.04, 0.5, i % 2 ? 0xd1d6df : 0xff7c4f, { roughness: 0.72, metalness: 0.16 });
+    jersey.position.set(x, y, z);
+    world.add(jersey);
+    addStaticCollider(jersey);
+  });
+
+  const roadCones = [
+    [-14.2, 0.24, 15.1], [-12.8, 0.24, 15.5], [-11.4, 0.24, 14.9],
+    [14.6, 0.24, -15.2], [13.2, 0.24, -15.6], [11.8, 0.24, -14.8]
+  ];
+  roadCones.forEach(([x, y, z]) => {
+    const cone = box(0.24, 0.48, 0.24, 0xff8f47, { roughness: 0.42, metalness: 0.15, emissive: 0x50260f, emissiveIntensity: 0.15 });
+    cone.position.set(x, y, z);
+    world.add(cone);
+  });
+
+  const helipadRing = new THREE.Mesh(
+    new THREE.RingGeometry(2.1, 2.52, 40),
+    new THREE.MeshStandardMaterial({ color: 0xf8f8f8, emissive: 0x3f4758, emissiveIntensity: 0.24, roughness: 0.55, metalness: 0.12, side: THREE.DoubleSide })
+  );
+  helipadRing.position.set(-22.5, 0.03, 16.8);
+  helipadRing.rotation.x = -Math.PI / 2;
+  world.add(helipadRing);
+
+  const helipadH = box(0.28, 0.02, 2.2, 0xf2f4f7, { roughness: 0.24, metalness: 0.1, emissive: 0x8aa6c9, emissiveIntensity: 0.22 });
+  helipadH.position.set(-22.5, 0.02, 16.8);
+  world.add(helipadH);
+  const helipadCross = box(2.2, 0.02, 0.28, 0xf2f4f7, { roughness: 0.24, metalness: 0.1, emissive: 0x8aa6c9, emissiveIntensity: 0.22 });
+  helipadCross.position.set(-22.5, 0.02, 16.8);
+  world.add(helipadCross);
+
   doorwayDefs.forEach((doorway) => {
     const horizontal = doorway.size[0] >= doorway.size[2];
     const rot = horizontal ? 0 : Math.PI / 2;
@@ -852,15 +956,16 @@ function makeMap() {
     const sideA = box(0.18, 2.6, frameDepth, 0x273242, { roughness: 0.62, metalness: 0.45 });
     const sideB = box(0.18, 2.6, frameDepth, 0x273242, { roughness: 0.62, metalness: 0.45 });
     const lintel = box(1.9, 0.18, frameDepth, 0x273242, { roughness: 0.62, metalness: 0.45 });
-    sideA.position.set(pos[0] - frameHalfWidth, pos[1], pos[2]);
-    sideB.position.set(pos[0] + frameHalfWidth, pos[1], pos[2]);
+    const axis = horizontal ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1);
+    sideA.position.set(pos[0], pos[1], pos[2]).addScaledVector(axis, -frameHalfWidth);
+    sideB.position.set(pos[0], pos[1], pos[2]).addScaledVector(axis, frameHalfWidth);
     lintel.position.set(pos[0], pos[1] + 1.22, pos[2]);
     [sideA, sideB, lintel].forEach((piece) => {
       piece.rotation.y = rot;
       world.add(piece);
     });
 
-    const door = box(1.2, 2.4, 0.14, 0x6b523c, { roughness: 0.8, emissive: 0x1f1610, emissiveIntensity: 0.2 });
+    const door = box(horizontal ? 1.2 : 0.14, 2.4, horizontal ? 0.14 : 1.2, 0x6b523c, { roughness: 0.8, emissive: 0x1f1610, emissiveIntensity: 0.2 });
     door.position.set(...pos);
     door.rotation.y = rot;
     world.add(door);
@@ -1129,6 +1234,9 @@ function makeBot(team, operator, pos, spawnIndex = 0) {
   nameplate.position.set(0, 1.45, 0);
   m.add(nameplate);
 
+  const speech = makeSpeechBubble(team === 'atk' ? '#9edbff' : '#ffc2b0');
+  m.add(speech.sprite);
+
   const outline = box(0.92, 1.96, 0.92, team === 'atk' ? 0x62bcff : 0xff7777, {
     roughness: 0.2,
     metalness: 0,
@@ -1157,7 +1265,7 @@ function makeBot(team, operator, pos, spawnIndex = 0) {
     cornerIndex: spawnIndex % roomClearCorners.length, cornerLookTimer: 0.5 + Math.random() * 1.2,
     scanDir: Math.random() > 0.5 ? 1 : -1, lastMoveSpeed: 0, hearing: 1.1 + Math.random() * 0.4,
     squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2, abilityCd: 4 + Math.random() * 5, abilityAnim: 0,
-    patrolIndex: spawnIndex % defenderPatrolPoints.length, nameplate, abilityRig,
+    patrolIndex: spawnIndex % defenderPatrolPoints.length, nameplate, abilityRig, speech,
     hasBomb: false, deathAnim: 0, deathTilt: 0, deathDir: new THREE.Vector3(),
     lastTaskCallout: '', lastTaskTarget: null, nextTaskCalloutAt: 0,
     routeBias: ((spawnIndex % 2) ? 1 : -1) * (0.9 + Math.random() * 0.7),
@@ -1753,6 +1861,7 @@ function botThink(bot, dt) {
     if (bot.leftLeg) bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, 0.7, dt * 7);
     if (bot.rightLeg) bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -0.5, dt * 7);
     if (bot.nameplate) bot.nameplate.material.opacity = Math.max(0.06, 0.35 - bot.deathAnim * 0.18);
+    if (bot.speech?.sprite) bot.speech.sprite.visible = false;
     return;
   }
   if (state.phase === 'prep' && !state.bombPlanted) {
@@ -1858,7 +1967,7 @@ function botThink(bot, dt) {
     bot.lastHeard = bot.pingTarget.clone();
     if (bot.calloutCd <= 0) {
       const enemyName = visible === player ? 'player' : visible.role;
-      addFeed(`${bot.role} callout: ${enemyName} spotted in ${getAreaNameFromPos(bot.pingTarget).toUpperCase()}`);
+      pushBotCallout(bot, `${enemyName} spotted in ${getAreaNameFromPos(bot.pingTarget)}`, 2.9);
       bot.calloutCd = 4 + Math.random() * 2.5;
     }
     bots.forEach((ally) => {
@@ -2091,6 +2200,11 @@ function botThink(bot, dt) {
   }
   if (bot.nameplate) {
     bot.nameplate.material.opacity = THREE.MathUtils.clamp(0.5 + bot.abilityAnim * 0.8, 0.35, 1);
+  }
+  if (bot.speech) {
+    bot.speech.life = Math.max(0, bot.speech.life - dt);
+    bot.speech.sprite.visible = bot.speech.life > 0;
+    bot.speech.sprite.material.opacity = THREE.MathUtils.clamp(bot.speech.life * 1.5, 0, 1);
   }
 
   if (bot.team === 'atk' && bot.hasBomb && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 1.8) {
