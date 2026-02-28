@@ -30,6 +30,7 @@ const ui = {
   ammo: document.getElementById('ammo'),
   stance: document.getElementById('stance'),
   objective: document.getElementById('objective'),
+  plantStatus: document.getElementById('plantStatus'),
   gadgetA: document.getElementById('gadgetA'),
   gadgetB: document.getElementById('gadgetB'),
   feed: document.getElementById('feed'),
@@ -104,8 +105,10 @@ const state = {
   bombDropped: false,
   bombDropPos: new THREE.Vector3(),
   gameOver: false,
-  objectivePos: new THREE.Vector3(0.2, 0, -11.2),
-  atkObjectiveKnown: false
+  objectivePos: new THREE.Vector3(-1.3, 0, -10.2),
+  atkObjectiveKnown: false,
+  plantingProgress: 0,
+  plantingActor: ''
 };
 
 const input = { keys: {}, mouseDx: 0, mouseDy: 0, ads: false, fire: false, lean: 0, melee: false };
@@ -800,7 +803,7 @@ function makeMap() {
     new THREE.CylinderGeometry(0.95, 0.95, 0.08, 24),
     new THREE.MeshStandardMaterial({ color: 0x7de6ff, emissive: 0x1e9ad3, emissiveIntensity: 1.2, transparent: true, opacity: 0.65 })
   );
-  objectiveIntelMesh.position.set(0.2, 0.12, -11.2);
+  objectiveIntelMesh.position.copy(state.objectivePos).setY(0.12);
   objectiveIntelMesh.material.depthTest = false;
   objectiveIntelMesh.renderOrder = 30;
   objectiveIntelMesh.visible = false;
@@ -810,7 +813,7 @@ function makeMap() {
     new THREE.TorusGeometry(1.3, 0.08, 12, 34),
     new THREE.MeshStandardMaterial({ color: 0x9de8ff, emissive: 0x2dbdff, emissiveIntensity: 1.1, transparent: true, opacity: 0.6 })
   );
-  objectiveIntelPulse.position.set(0.2, 1.55, -11.2);
+  objectiveIntelPulse.position.copy(state.objectivePos).setY(1.55);
   objectiveIntelPulse.rotation.x = Math.PI / 2;
   objectiveIntelPulse.material.depthTest = false;
   objectiveIntelPulse.renderOrder = 30;
@@ -949,7 +952,7 @@ function makeMap() {
 
   doorwayDefs.forEach((doorway) => {
     const horizontal = doorway.size[0] >= doorway.size[2];
-    const rot = horizontal ? 0 : Math.PI / 2;
+    const frameRot = horizontal ? 0 : Math.PI / 2;
     const pos = [doorway.center[0], 1.2, doorway.center[2]];
     const frameHalfWidth = 0.86;
     const frameDepth = 0.14;
@@ -961,13 +964,12 @@ function makeMap() {
     sideB.position.set(pos[0], pos[1], pos[2]).addScaledVector(axis, frameHalfWidth);
     lintel.position.set(pos[0], pos[1] + 1.22, pos[2]);
     [sideA, sideB, lintel].forEach((piece) => {
-      piece.rotation.y = rot;
+      piece.rotation.y = frameRot;
       world.add(piece);
     });
 
     const door = box(horizontal ? 1.2 : 0.14, 2.4, horizontal ? 0.14 : 1.2, 0x6b523c, { roughness: 0.8, emissive: 0x1f1610, emissiveIntensity: 0.2 });
     door.position.set(...pos);
-    door.rotation.y = rot;
     world.add(door);
     visionOccluders.push(door);
     destructibles.push({
@@ -1453,6 +1455,21 @@ function updateUI() {
   if (ui.operatorPlate) ui.operatorPlate.textContent = `OPERATOR: ${player.codename.toUpperCase()} · ${player.abilityLabel.toUpperCase()}`;
   ui.gadgetA.textContent = `[G] Breach Charge: ${player.breachCharges}`;
   ui.gadgetB.textContent = `[F] ${player.abilityLabel}: ${player.abilityCd <= 0 ? 'Ready' : player.abilityCd.toFixed(1) + 's'}`;
+  if (ui.plantStatus) {
+    ui.plantStatus.classList.remove('planting', 'armed');
+    if (state.bombPlanted) {
+      ui.plantStatus.classList.remove('hidden');
+      ui.plantStatus.classList.add('armed');
+      ui.plantStatus.textContent = `RIFT CHARGE ARMED · DETONATES IN ${ui.timer.textContent}`;
+    } else if (state.plantingProgress > 0) {
+      ui.plantStatus.classList.remove('hidden');
+      ui.plantStatus.classList.add('planting');
+      const actor = state.plantingActor ? `${state.plantingActor} ` : '';
+      ui.plantStatus.textContent = `${actor}PLANTING RIFT CHARGE · ${Math.round(state.plantingProgress * 100)}%`;
+    } else {
+      ui.plantStatus.classList.add('hidden');
+    }
+  }
   if (state.phase === 'prep') {
     ui.objective.innerHTML = player.team === 'atk'
       ? `Prep Phase: Attackers are locked on drones and must scout from outside to locate Bomb Room.${state.atkObjectiveKnown ? ' <span class="ok">Objective found.</span>' : ''}`
@@ -1680,6 +1697,8 @@ function plantOrDefuse(dt) {
   if (!near) { player.plantProg = 0; player.defProg = 0; return; }
   if (player.team === 'atk' && player.hasBomb && state.phase === 'action' && !state.bombPlanted && input.keys['KeyX']) {
     player.plantProg = (player.plantProg || 0) + dt;
+    state.plantingProgress = Math.max(state.plantingProgress, Math.min(1, player.plantProg / 3));
+    state.plantingActor = 'You';
     if (player.plantProg > 3) {
       state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant; player.plantProg = 0;
       addFeed('Rift Charge planted'); beep(70, 0.2, 'square', 0.08);
@@ -2207,8 +2226,10 @@ function botThink(bot, dt) {
     bot.speech.sprite.material.opacity = THREE.MathUtils.clamp(bot.speech.life * 1.5, 0, 1);
   }
 
-  if (bot.team === 'atk' && bot.hasBomb && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 1.8) {
+  if (bot.team === 'atk' && bot.hasBomb && state.phase === 'action' && !state.bombPlanted && myPos.distanceTo(state.objectivePos) < 2.2) {
     bot.plant = (bot.plant || 0) + dt;
+    state.plantingProgress = Math.max(state.plantingProgress, Math.min(1, bot.plant / 3));
+    state.plantingActor = bot.team === player.team ? `${bot.name}` : 'Enemy';
     if (bot.plant > 3) {
       state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant;
       addFeed('Enemy planter armed Rift Charge');
@@ -2475,6 +2496,8 @@ function tick() {
     player.pingCd -= dt;
     shakeT = Math.max(0, shakeT - dt * 2.4);
 
+    state.plantingProgress = 0;
+    state.plantingActor = '';
     updateAIWorldState(dt);
     applyMobileInput();
     gamepadUpdate();
