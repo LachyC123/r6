@@ -8,11 +8,11 @@ renderer.physicallyCorrectLights = true;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.32;
-renderer.setClearColor(0x040812);
+renderer.toneMappingExposure = 1.55;
+renderer.setClearColor(0x7eb6ff);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x070d18, 14, 92);
+scene.fog = new THREE.Fog(0x9fc7ff, 28, 150);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 180);
 scene.add(camera);
@@ -57,18 +57,38 @@ const ui = {
   btnPing: document.getElementById('btnPing')
 };
 
-const ambient = new THREE.HemisphereLight(0xb4cfff, 0x070c14, 1.05);
+const ambient = new THREE.HemisphereLight(0xd7ebff, 0x6f8aa9, 1.42);
 scene.add(ambient);
-const keyLight = new THREE.DirectionalLight(0xb8d4ff, 2.4);
+const keyLight = new THREE.DirectionalLight(0xfff1d4, 2.8);
 keyLight.position.set(8, 16, 4);
 keyLight.castShadow = true;
 scene.add(keyLight);
-const bounceLight = new THREE.PointLight(0x7ca6ff, 25, 55, 2);
-bounceLight.position.set(0, 5.2, 2);
+const bounceLight = new THREE.PointLight(0x9cc7ff, 32, 62, 2);
+bounceLight.position.set(0, 6, 2);
 scene.add(bounceLight);
-const moonFill = new THREE.DirectionalLight(0x8fc5ff, 1.1);
-moonFill.position.set(-10, 9, -6);
-scene.add(moonFill);
+const sunFill = new THREE.DirectionalLight(0xffd9a6, 1.6);
+sunFill.position.set(-10, 12, -6);
+scene.add(sunFill);
+
+function makeSkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, c.height);
+  grad.addColorStop(0, '#87c7ff');
+  grad.addColorStop(0.45, '#b2ddff');
+  grad.addColorStop(1, '#f4dcb0');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, c.width, c.height);
+  return new THREE.CanvasTexture(c);
+}
+
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(160, 32, 24),
+  new THREE.MeshBasicMaterial({ map: makeSkyTexture(), side: THREE.BackSide, fog: false })
+);
+scene.add(skyDome);
 
 const state = {
   phase: 'prep',
@@ -584,17 +604,17 @@ function isBlockedPoint(point) {
 }
 
 function makeMap() {
-  const floorTex = makeNoiseTexture('#303945', '#232b36');
-  const wallTex = makeNoiseTexture('#5f6e80', '#3b4654');
+  const floorTex = makeNoiseTexture('#68809b', '#4a6078');
+  const wallTex = makeNoiseTexture('#d4bea2', '#9daec2');
   const concreteTex = makeNoiseTexture('#3f4752', '#323943');
-  const trimTex = makeNoiseTexture('#2d3643', '#1e2530');
+  const trimTex = makeNoiseTexture('#5c6d80', '#3f4f62');
 
-  const floor = box(30, 0.2, 30, 0x293340, { map: floorTex, roughness: 0.66, metalness: 0.2 });
+  const floor = box(30, 0.2, 30, 0x6c8298, { map: floorTex, roughness: 0.66, metalness: 0.2 });
   floor.position.y = -0.1;
   floor.receiveShadow = true;
   world.add(floor);
 
-  const ceiling = box(30, 0.3, 30, 0x1a212d, { map: trimTex, roughness: 0.88, metalness: 0.2 });
+  const ceiling = box(30, 0.3, 30, 0x71859b, { map: trimTex, roughness: 0.88, metalness: 0.2 });
   ceiling.position.y = 4;
   world.add(ceiling);
 
@@ -611,8 +631,9 @@ function makeMap() {
     [-3.8, 1.5, -7.1, 0.4, 3, 5.6], [4.8, 1.5, -12, 0.4, 3, 6],
     [10.5, 1.5, -2, 9, 3, 0.4], [-11.3, 1.5, -1.8, 7.4, 3, 0.4]
   ];
-  walls.forEach(([x, y, z, w, h, d]) => {
-    const m = box(w, h, d, 0x4d6074, { map: wallTex, roughness: 0.76, metalness: 0.1 });
+  const wallPalette = [0xb6c9d9, 0xb8cdbf, 0xd5be9f, 0xc4b7d6];
+  walls.forEach(([x, y, z, w, h, d], i) => {
+    const m = box(w, h, d, wallPalette[i % wallPalette.length], { map: wallTex, roughness: 0.76, metalness: 0.1 });
     m.position.set(x, y, z);
     m.castShadow = true;
     world.add(m);
@@ -729,11 +750,11 @@ function makeMap() {
 
   const doorSpots = [
     { pos: [-7.1, 1.2, -3.8], rot: 0 },
-    { pos: [5.7, 1.2, -14.75], rot: Math.PI / 2 },
+    { pos: [5.7, 1.2, -14.75], rot: 0 },
     { pos: [-15, 1.2, 3], rot: Math.PI / 2 },
-    { pos: [-3.3, 1.2, 9.6], rot: Math.PI / 2 },
-    { pos: [4.8, 1.2, 9.6], rot: Math.PI / 2 },
-    { pos: [0.1, 1.2, -9.7], rot: Math.PI / 2 }
+    { pos: [-3.3, 1.2, 9.6], rot: 0 },
+    { pos: [4.8, 1.2, 9.6], rot: 0 },
+    { pos: [0.1, 1.2, -9.7], rot: 0 }
   ];
   doorSpots.forEach((spot) => {
     const frame = box(1.6, 2.6, 0.28, 0x273242, { roughness: 0.62, metalness: 0.45 });
