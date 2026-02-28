@@ -294,6 +294,7 @@ const rainDrops = [];
 let bombCarryMesh;
 let bombDropCore;
 let bombDropRing;
+let bombDropBeacon;
 const breachSignals = [];
 let objectiveIntelMesh;
 let objectiveIntelPulse;
