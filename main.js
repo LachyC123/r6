@@ -493,6 +493,15 @@ const defenderSetupSpots = {
   ]
 };
 
+const reinforceableWallDefs = [
+  { center: [6.6, 1.2, -7.5], size: [0.4, 2.4, 3.6], priority: 2.4 },
+  { center: [-4.4, 1.2, -8.6], size: [2.8, 2.4, 0.4], priority: 3.2 },
+  { center: [4.3, 1.2, -8.6], size: [2.8, 2.4, 0.4], priority: 3.1 },
+  { center: [-5.2, 1.2, -12.6], size: [2.4, 2.4, 0.4], priority: 2.8 },
+  { center: [5, 1.2, -12.6], size: [2.4, 2.4, 0.4], priority: 2.7 },
+  { center: [0, 1.2, -6.2], size: [4.2, 2.4, 0.4], priority: 1.4 }
+];
+
 const attackerDroneRoutes = [
   [new THREE.Vector3(-11.2, 0.06, 9.8), new THREE.Vector3(-8.8, 0.06, 2.2), new THREE.Vector3(-6.1, 0.06, -6.4), new THREE.Vector3(-1.4, 0.06, -10.4)],
   [new THREE.Vector3(7.4, 0.06, 11.8), new THREE.Vector3(8.6, 0.06, 4.2), new THREE.Vector3(5.6, 0.06, -3.2), new THREE.Vector3(1.2, 0.06, -10.8)],
@@ -683,7 +692,8 @@ function botTaskToCallout(task, bot, target) {
     investigate: `investigating ${area}`,
     hunt: `hunting near ${area}`,
     retake: `retaking ${area}`,
-    reposition: `repositioning ${area}`
+    reposition: `repositioning ${area}`,
+    reinforce: `reinforcing ${area}`
   };
   return `${bot.codename}: ${map[task] || `moving to ${area}`}`;
 }
@@ -1066,11 +1076,58 @@ function makeMap() {
     });
   });
 
-  const weakWall = box(0.4, 2.4, 3.6, 0x735f4d, { map: concreteTex, roughness: 0.92 });
-  weakWall.position.set(6.6, 1.2, -7.5);
-  world.add(weakWall);
-  visionOccluders.push(weakWall);
-  destructibles.push({ type: 'wall', hp: 70, mesh: weakWall, bounds: new THREE.Box3().setFromObject(weakWall), destroyed: false });
+  const makeReinforcementVisual = (wallMesh, width, height, depth) => {
+    const shell = box(
+      width + (width > depth ? 0.06 : 0.02),
+      height,
+      depth + (depth > width ? 0.06 : 0.02),
+      0x4f5f73,
+      { roughness: 0.28, metalness: 0.85, emissive: 0x1e2f44, emissiveIntensity: 0.4 }
+    );
+    shell.visible = false;
+    shell.material.transparent = true;
+    shell.material.opacity = 1;
+    wallMesh.add(shell);
+
+    const braceCount = Math.max(2, Math.round((width > depth ? width : depth) / 1.2));
+    for (let i = 0; i < braceCount; i++) {
+      const brace = box(width > depth ? 0.14 : width + 0.08, 2.08, depth > width ? 0.14 : depth + 0.08, 0xa8b5c4, {
+        roughness: 0.35,
+        metalness: 0.78,
+        emissive: 0x2b435e,
+        emissiveIntensity: 0.22
+      });
+      if (width > depth) {
+        brace.position.set(-width * 0.44 + (i / Math.max(1, braceCount - 1)) * (width * 0.88), -0.05, 0);
+      } else {
+        brace.position.set(0, -0.05, -depth * 0.44 + (i / Math.max(1, braceCount - 1)) * (depth * 0.88));
+      }
+      shell.add(brace);
+    }
+    return shell;
+  };
+
+  reinforceableWallDefs.forEach(({ center, size, priority }) => {
+    const wall = box(size[0], size[1], size[2], 0x735f4d, { map: concreteTex, roughness: 0.92 });
+    wall.position.set(center[0], center[1], center[2]);
+    world.add(wall);
+    visionOccluders.push(wall);
+    const isBombSiteWall = wall.position.distanceTo(state.objectivePos) < 5.8;
+    const reinforcedSkin = makeReinforcementVisual(wall, size[0], size[1], size[2]);
+    destructibles.push({
+      type: 'wall',
+      hp: 70,
+      maxHp: 70,
+      mesh: wall,
+      bounds: new THREE.Box3().setFromObject(wall),
+      destroyed: false,
+      reinforced: false,
+      reinforceProgress: 0,
+      reinforcePriority: priority + (isBombSiteWall ? 2.1 : 0),
+      isBombSiteWall,
+      reinforcedSkin
+    });
+  });
 
   const stripGeo = new THREE.BoxGeometry(0.15, 0.06, 3.8);
   const stripMat = new THREE.MeshStandardMaterial({ color: 0x9bdaff, emissive: 0x3c8dbb, emissiveIntensity: 1, roughness: 0.25, metalness: 0.65 });
@@ -1342,6 +1399,8 @@ function makeBot(team, operator, pos, spawnIndex = 0) {
     squadLead: spawnIndex === 0, suppressing: 0, regroupCd: 0, calloutCd: Math.random() * 2, abilityCd: 4 + Math.random() * 5, abilityAnim: 0,
     patrolIndex: spawnIndex % defenderPatrolPoints.length, nameplate, abilityRig, speech,
     hasBomb: false, deathAnim: 0, deathTilt: 0, deathDir: new THREE.Vector3(),
+    reinforcementsLeft: team === 'def' ? 2 : 0, reinforcingTarget: null, reinforceTimer: 0,
+    idleScanPhase: Math.random() * Math.PI * 2, recoilKick: 0,
     lastTaskCallout: '', lastTaskTarget: null, nextTaskCalloutAt: 0,
     routeBias: ((spawnIndex % 2) ? 1 : -1) * (0.9 + Math.random() * 0.7),
     tacticalOffset: new THREE.Vector3((Math.random() - 0.5) * 1.9, 0, (Math.random() - 0.5) * 1.9)
@@ -1671,8 +1730,7 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
         dObj.hp = 0;
         if (!dObj.destroyed) destroyDestructible(dObj);
       } else {
-        dObj.hp -= damage;
-        if (dObj.hp <= 0 && !dObj.destroyed) destroyDestructible(dObj);
+        applyDestructibleDamage(dObj, damage, 'bullet');
       }
     }
   }
@@ -1709,6 +1767,7 @@ function spawnTrail(start, end, fromPlayer) {
 
 function destroyDestructible(d) {
   d.destroyed = true;
+  if (d.reinforcedSkin) d.reinforcedSkin.visible = false;
   if (d.type === 'glass') {
     d.mesh.material.opacity = 0.05;
     for (let i = 0; i < 12; i++) {
@@ -1758,7 +1817,7 @@ function pulseScan() {
       .filter((d) => !d.destroyed && (d.type === 'door' || d.type === 'wall'))
       .sort((a, b) => a.mesh.position.distanceTo(player.pos) - b.mesh.position.distanceTo(player.pos))[0];
     if (breachable && breachable.mesh.position.distanceTo(player.pos) < 4.2) {
-      destroyDestructible(breachable);
+      applyDestructibleDamage(breachable, breachable.reinforced ? 145 : 999, 'ability');
       addFeed(`${player.codename} triggered Shock Breach`);
     }
   } else {
@@ -1923,6 +1982,26 @@ function getRoleBreachPoint(bot) {
   return breachables[0];
 }
 
+function getDefenderReinforceTarget(bot) {
+  const candidates = destructibles.filter((d) => d.type === 'wall' && !d.destroyed && !d.reinforced);
+  if (!candidates.length || bot.reinforcementsLeft <= 0) return null;
+  candidates.sort((a, b) => {
+    const aScore = (a.reinforcePriority || 0) + (a.isBombSiteWall ? 2.6 : 0) - a.mesh.position.distanceTo(bot.mesh.position) * 0.22;
+    const bScore = (b.reinforcePriority || 0) + (b.isBombSiteWall ? 2.6 : 0) - b.mesh.position.distanceTo(bot.mesh.position) * 0.22;
+    return bScore - aScore;
+  });
+  return candidates[0];
+}
+
+function applyDestructibleDamage(d, amount, source = 'bullet') {
+  if (!d || d.destroyed) return;
+  const reinforceScale = d.reinforced
+    ? (source === 'breach' || source === 'ability' ? 1 : source === 'melee' ? 0.2 : 0.28)
+    : 1;
+  d.hp -= amount * reinforceScale;
+  if (d.hp <= 0 && !d.destroyed) destroyDestructible(d);
+}
+
 function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
   const gaitSpeed = THREE.MathUtils.clamp(moveAmount * 3.2, 0, 1.8);
   bot.gait += dt * (3.6 + gaitSpeed * 4.2);
@@ -1933,16 +2012,19 @@ function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
   const adsBias = hostileVisible ? 1 : 0;
   const crouchBias = (bot.inCover || bot.retreat) ? 1 : 0;
   const sprintBias = moveAmount > 0.06 && !hostileVisible ? 1 : 0;
+  bot.idleScanPhase += dt * (0.7 + bot.discipline * 0.55);
+  bot.recoilKick = Math.max(0, (bot.recoilKick || 0) - dt * 5.8);
+  const idleHeadSweep = !hostileVisible && moveAmount < 0.03 ? Math.sin(bot.idleScanPhase) * 0.22 : 0;
 
   bot.leftLeg.rotation.x = THREE.MathUtils.lerp(bot.leftLeg.rotation.x, swing * (1 - crouchBias * 0.35) + sprintBias * 0.22, dt * 10);
   bot.rightLeg.rotation.x = THREE.MathUtils.lerp(bot.rightLeg.rotation.x, -swing * (1 - crouchBias * 0.35) + sprintBias * 0.22, dt * 10);
   bot.leftArm.rotation.x = THREE.MathUtils.lerp(bot.leftArm.rotation.x, -armSwing - adsBias * 0.6 - crouchBias * 0.24 - bot.abilityAnim * 0.55, dt * 10);
-  bot.rightArm.rotation.x = THREE.MathUtils.lerp(bot.rightArm.rotation.x, armSwing - 0.2 - adsBias * 0.45 - crouchBias * 0.2 + bot.abilityAnim * 0.45, dt * 10);
+  bot.rightArm.rotation.x = THREE.MathUtils.lerp(bot.rightArm.rotation.x, armSwing - 0.2 - adsBias * 0.45 - crouchBias * 0.2 + bot.abilityAnim * 0.45 + bot.recoilKick * 0.36, dt * 10);
 
   bot.lean = THREE.MathUtils.lerp(bot.lean, THREE.MathUtils.clamp(bot.strafeDir * bot.lastMoveSpeed * 0.25, -0.2, 0.2), dt * 6);
   bot.mesh.rotation.z = bot.lean;
   bot.mesh.position.y = THREE.MathUtils.lerp(bot.mesh.position.y, 1.02 - crouchBias * 0.16 + Math.abs(Math.sin(bot.gait * 2.1)) * 0.03 * bot.lastMoveSpeed - sprintBias * 0.04, dt * 10);
-  bot.helmet.rotation.y = THREE.MathUtils.lerp(bot.helmet.rotation.y, (aimPoint ? THREE.MathUtils.clamp(Math.sin(bot.gait * 0.5) * 0.12, -0.18, 0.18) : 0) + bot.lean * 0.4, dt * 6);
+  bot.helmet.rotation.y = THREE.MathUtils.lerp(bot.helmet.rotation.y, (aimPoint ? THREE.MathUtils.clamp(Math.sin(bot.gait * 0.5) * 0.12, -0.18, 0.18) : 0) + bot.lean * 0.4 + idleHeadSweep, dt * 6);
   bot.abilityRig.rotation.y = THREE.MathUtils.lerp(bot.abilityRig.rotation.y, bot.gait * 0.08 + bot.abilityAnim * 1.4, dt * 9);
   bot.abilityRig.position.y = THREE.MathUtils.lerp(bot.abilityRig.position.y, 0.38 + Math.sin(bot.gait * 1.8) * 0.03 + bot.abilityAnim * 0.08, dt * 9);
 
@@ -1958,7 +2040,7 @@ function animateBotPose(bot, dt, moveAmount, aimPoint, hostileVisible) {
   if (bot.gunMesh && aimPoint) {
     bot.gunMesh.lookAt(aimPoint.clone().setY(1.22));
     bot.gunMesh.position.z = THREE.MathUtils.lerp(bot.gunMesh.position.z, hostileVisible ? -0.42 : -0.36, dt * 8);
-    bot.gunMesh.position.y = THREE.MathUtils.lerp(bot.gunMesh.position.y, 0.22 - crouchBias * 0.06 + bot.abilityAnim * 0.03, dt * 8);
+    bot.gunMesh.position.y = THREE.MathUtils.lerp(bot.gunMesh.position.y, 0.22 - crouchBias * 0.06 + bot.abilityAnim * 0.03 - bot.recoilKick * 0.05, dt * 8);
   }
 }
 
@@ -2005,7 +2087,7 @@ function triggerBotAbility(bot, visibleEnemy) {
   if (bot.ability === 'hardBreach' || bot.ability === 'shockBreach') {
     const breach = destructibles.filter((d) => !d.destroyed).sort((a, b) => a.mesh.position.distanceTo(myPos) - b.mesh.position.distanceTo(myPos))[0];
     if (breach && breach.mesh.position.distanceTo(myPos) < 4.7) {
-      destroyDestructible(breach);
+      applyDestructibleDamage(breach, breach.reinforced ? 145 : 500, 'ability');
       spawnAbilityBurst(breach.mesh.position.clone().setY(1.1), 0xffc36f, 8, 1.8);
       addFeed(`${bot.codename} used ${bot.abilityLabel}`);
       return true;
@@ -2092,6 +2174,39 @@ function botThink(bot, dt) {
       prepDoor.mesh.material.color.lerp(new THREE.Color(0x7f5f3f), dt * 0.85);
     }
 
+    if (bot.reinforcementsLeft > 0) {
+      if (!bot.reinforcingTarget || bot.reinforcingTarget.destroyed || bot.reinforcingTarget.reinforced) {
+        bot.reinforcingTarget = getDefenderReinforceTarget(bot);
+        bot.reinforceTimer = 0;
+      }
+      if (bot.reinforcingTarget) {
+        const wall = bot.reinforcingTarget;
+        const toWall = wall.mesh.position.clone().sub(bot.mesh.position);
+        toWall.y = 0;
+        bot.task = 'reinforce';
+        if (toWall.length() > 1.25) {
+          bot.mesh.position.addScaledVector(toWall.normalize(), dt * 1.8);
+        } else {
+          bot.reinforceTimer += dt * (0.85 + bot.discipline * 0.45);
+          wall.reinforceProgress = Math.min(1, bot.reinforceTimer / 2.6);
+          if (wall.reinforcedSkin) {
+            wall.reinforcedSkin.visible = true;
+            wall.reinforcedSkin.material.opacity = 0.35 + wall.reinforceProgress * 0.65;
+          }
+          if (bot.reinforceTimer >= 2.6) {
+            wall.reinforced = true;
+            wall.reinforceProgress = 1;
+            wall.maxHp = 220;
+            wall.hp = Math.max(wall.hp, wall.maxHp);
+            bot.reinforcementsLeft--;
+            bot.reinforcingTarget = null;
+            bot.reinforceTimer = 0;
+            addFeed(`${bot.codename} reinforced ${wall.isBombSiteWall ? 'bomb site wall' : 'wall'}`);
+          }
+        }
+      }
+    }
+
     if (!bot.setupDone) {
       if (bot.role === 'Intel' || bot.role === 'Denier') {
         const idx = (bot.spawnIndex + Math.floor(performance.now() * 0.001)) % defenderSetupSpots.jammer.length;
@@ -2176,12 +2291,20 @@ function botThink(bot, dt) {
 
   const nearbyEnemy = visible || enemy.find((e) => (e.mesh ? e.mesh.position : e.pos).distanceTo(myPos) < 7.5);
   const allyLow = bots.some((ally) => !ally.dead && ally.team === bot.team && ally.hp < 72 && ally.mesh.position.distanceTo(myPos) < 6);
-  const needAbility = (bot.ability === 'medStim' && allyLow)
-    || ((bot.ability === 'armorTrap' || bot.ability === 'ambushMine') && !visible && bot.team === 'def' && bot.alert > 0.35)
-    || ((bot.ability === 'hardBreach' || bot.ability === 'shockBreach') && bot.team === 'atk' && state.phase === 'action' && !state.bombPlanted)
-    || ((bot.ability === 'jamBurst' || bot.ability === 'scannerPulse' || bot.ability === 'intelPing') && !!nearbyEnemy);
-  if (bot.abilityCd <= 0 && needAbility) {
-    if (triggerBotAbility(bot, nearbyEnemy)) bot.abilityCd = 8 + Math.random() * 5;
+  const abilityUrgency = (bot.ability === 'medStim' && allyLow ? 0.95 : 0)
+    + ((bot.ability === 'armorTrap' || bot.ability === 'ambushMine') && !visible && bot.team === 'def' && bot.alert > 0.35 ? 0.6 : 0)
+    + ((bot.ability === 'hardBreach' || bot.ability === 'shockBreach') && bot.team === 'atk' && state.phase === 'action' && !state.bombPlanted ? 0.7 : 0)
+    + ((bot.ability === 'jamBurst' || bot.ability === 'scannerPulse' || bot.ability === 'intelPing') && !!nearbyEnemy ? 0.72 : 0);
+  if (bot.abilityCd <= 0 && abilityUrgency > 0.55) {
+    bot.abilityUseDelay = Math.max(0, (bot.abilityUseDelay ?? (0.2 + Math.random() * 0.55)) - dt * (0.8 + abilityUrgency));
+    if (bot.abilityUseDelay <= 0 && Math.random() < Math.min(0.94, 0.48 + bot.discipline * 0.38 + abilityUrgency * 0.25)) {
+      if (triggerBotAbility(bot, nearbyEnemy)) {
+        bot.abilityCd = 7.5 + Math.random() * 4.8;
+        bot.abilityUseDelay = 0.3 + Math.random() * 0.8;
+      }
+    }
+  } else {
+    bot.abilityUseDelay = 0.25 + Math.random() * 0.7;
   }
 
   if (bot.team === 'atk' && !bot.hasBomb) tryPickupDroppedBomb(bot, myPos);
@@ -2215,6 +2338,7 @@ function botThink(bot, dt) {
         bot.shootTimer -= dt;
         if (bot.shootTimer <= 0) {
           shoot(bot, aimPoint.clone().sub(myPos).normalize(), bot.role === 'Support' ? 32 : 24, 0.03);
+          bot.recoilKick = 1;
           bot.shootTimer = bot.role === 'Entry' ? 0.17 + Math.random() * 0.14 : 0.22 + Math.random() * 0.18;
         }
       }
@@ -2358,6 +2482,7 @@ function botThink(bot, dt) {
       const tPos = visible.mesh ? visible.mesh.position.clone().setY(1.2) : visible.pos.clone();
       const fireDir = tPos.sub(myPos).normalize();
       shoot(bot, fireDir, 20 + bot.aggression * 4, botAccuracy);
+      bot.recoilKick = 1;
       bot.shootTimer = 0.16 + Math.random() * (0.32 - bot.discipline * 0.08);
       if (visible === player) {
         bot.suppressing = 0.9;
@@ -2453,7 +2578,11 @@ function resetRound() {
     if (d.spawnPos) d.mesh.position.copy(d.spawnPos);
     if (d.spawnRot) d.mesh.rotation.copy(d.spawnRot);
     d.mesh.material.opacity = d.type === 'glass' ? 0.5 : 1;
-    d.hp = d.type === 'glass' ? 32 : (d.type === 'door' ? 80 : 70);
+    d.reinforced = false;
+    d.reinforceProgress = 0;
+    if (d.reinforcedSkin) d.reinforcedSkin.visible = false;
+    d.maxHp = d.type === 'door' ? 80 : (d.type === 'wall' ? 70 : d.maxHp || 70);
+    d.hp = d.type === 'glass' ? 32 : d.maxHp;
     d.bounds.setFromObject(d.mesh);
   });
   world.children.filter(o => o.userData.temp).forEach(o => world.remove(o));
@@ -2607,7 +2736,7 @@ function updatePlayer(dt) {
 
   if (input.melee) {
     const near = destructibles.find(d => !d.destroyed && d.mesh.position.distanceTo(player.pos) < 1.5 && (d.type === 'door' || d.type === 'wall'));
-    if (near) { near.hp -= 28; if (near.hp <= 0) destroyDestructible(near); makeNoise(near.mesh.position, 6.2, player.team); }
+    if (near) { applyDestructibleDamage(near, 28, 'melee'); makeNoise(near.mesh.position, 6.2, player.team); }
     input.melee = false;
   }
 
@@ -2669,7 +2798,7 @@ function tick() {
       if (g.type === 'charge') {
         g.timer -= dt;
         if (g.timer <= 0) {
-          destroyDestructible(g.target);
+          applyDestructibleDamage(g.target, 999, 'breach');
           g.mesh.visible = false; g.type = 'spent';
           shakeT = 0.35;
           for (let i = 0; i < 16; i++) {
