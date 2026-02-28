@@ -576,6 +576,27 @@ function addFeed(text) {
   while (ui.feed.children.length > 6) ui.feed.lastChild.remove();
 }
 
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+
+  const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
 function makeSpeechBubble(color = '#c9ecff') {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -601,8 +622,7 @@ function makeSpeechBubble(color = '#c9ecff') {
       ctx.fillStyle = 'rgba(8, 16, 32, 0.86)';
       ctx.strokeStyle = color;
       ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.roundRect(14, 14, canvas.width - 28, 126, 22);
+      drawRoundedRect(ctx, 14, 14, canvas.width - 28, 126, 22);
       ctx.fill();
       ctx.stroke();
       ctx.beginPath();
