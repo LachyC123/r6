@@ -141,6 +141,32 @@ html, body {
   animation: pulse-border 2.8s infinite;
   border-radius: 4px;
 }
+#plantStatus {
+  position: absolute;
+  left: 50%;
+  bottom: 60px;
+  transform: translateX(-50%);
+  min-width: min(440px, 70vw);
+  text-align: center;
+  background: rgba(6, 17, 32, 0.8);
+  border: 1px solid rgba(137, 197, 255, 0.45);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: #d8edff;
+  box-shadow: 0 0 20px rgba(59, 161, 255, 0.3);
+}
+#plantStatus.planting {
+  border-color: rgba(255, 212, 115, 0.8);
+  color: #ffe9bf;
+  box-shadow: 0 0 20px rgba(255, 179, 80, 0.36);
+}
+#plantStatus.armed {
+  border-color: rgba(255, 133, 133, 0.85);
+  color: #ffd0d0;
+  box-shadow: 0 0 24px rgba(255, 96, 96, 0.45);
+}
 #centerReticle {
   position: absolute;
   left: 50%;
