@@ -60,7 +60,15 @@ const ui = {
   btnCams: document.getElementById('btnCams'),
   btnPing: document.getElementById('btnPing'),
   bombOwner: document.getElementById('bombOwner'),
-  bombMarker: document.getElementById('bombMarker')
+  bombMarker: document.getElementById('bombMarker'),
+  announcerBanner: document.getElementById('announcerBanner'),
+  roundBrief: document.getElementById('roundBrief'),
+  briefTitle: document.getElementById('briefTitle'),
+  briefSubtitle: document.getElementById('briefSubtitle'),
+  briefDetails: document.getElementById('briefDetails'),
+  pressureMeter: document.getElementById('pressureMeter'),
+  entryStatus: document.getElementById('entryStatus'),
+  supportStatus: document.getElementById('supportStatus')
 };
 
 const ambient = new THREE.HemisphereLight(0xd7ebff, 0x6f8aa9, 1.42);
@@ -115,7 +123,12 @@ const state = {
   plantingActor: '',
   trapFx: 0,
   spectatorTarget: null,
-  spectatorIndex: 0
+  spectatorIndex: 0,
+  roundMessage: '',
+  roundSubMessage: '',
+  roundDetail: '',
+  announcedKey: '',
+  lockdown: false
 };
 
 const input = { keys: {}, mouseDx: 0, mouseDy: 0, ads: false, fire: false, lean: 0, melee: false };
@@ -301,6 +314,96 @@ const breachSignals = [];
 let objectiveIntelMesh;
 let objectiveIntelPulse;
 const tacticalFxMeshes = [];
+
+function showAnnouncement(text, duration = 2400) {
+  if (!ui.announcerBanner) return;
+  ui.announcerBanner.textContent = text;
+  ui.announcerBanner.classList.remove('hidden', 'show');
+  void ui.announcerBanner.offsetWidth;
+  ui.announcerBanner.classList.add('show');
+  clearTimeout(showAnnouncement.hideTimer);
+  showAnnouncement.hideTimer = setTimeout(() => {
+    ui.announcerBanner?.classList.add('hidden');
+    ui.announcerBanner?.classList.remove('show');
+  }, duration);
+}
+
+function updateRoundBrief(title, subtitle, detail) {
+  state.roundMessage = title;
+  state.roundSubMessage = subtitle;
+  state.roundDetail = detail;
+  if (ui.briefTitle) ui.briefTitle.textContent = title;
+  if (ui.briefSubtitle) ui.briefSubtitle.textContent = subtitle;
+  if (ui.briefDetails) ui.briefDetails.textContent = detail;
+}
+
+function ensureDoorBarricade(door, team = 'def') {
+  if (door.type !== 'door') return;
+  if (!door.barricadeMesh) {
+    const isWide = door.mesh.scale.x >= door.mesh.scale.z;
+    const panel = new THREE.Group();
+    const slatCount = 4;
+    for (let i = 0; i < slatCount; i++) {
+      const slat = box(isWide ? 1.06 : 0.1, 0.42, isWide ? 0.08 : 1.06, team === 'def' ? 0xc09158 : 0x9f7a48, {
+        roughness: 0.88,
+        metalness: 0.06,
+        emissive: team === 'def' ? 0x47321a : 0x3a2814,
+        emissiveIntensity: 0.16
+      });
+      slat.position.set(0, -0.72 + i * 0.48, 0.03);
+      panel.add(slat);
+    }
+    const tape = box(isWide ? 0.18 : 0.08, 2.02, isWide ? 0.09 : 0.18, 0xf6d16b, { roughness: 0.45, metalness: 0.08, emissive: 0x5d4d1a, emissiveIntensity: 0.2 });
+    panel.add(tape);
+    panel.position.copy(door.mesh.position);
+    panel.rotation.copy(door.mesh.rotation);
+    world.add(panel);
+    door.barricadeMesh = panel;
+    visionOccluders.push(panel);
+  }
+  door.barricaded = true;
+  door.barricadeTeam = team;
+  door.barricadeHp = 70;
+  door.barricadeMesh.visible = true;
+}
+
+function damageDoorBarricade(door, amount = 34, source = 'impact') {
+  if (!door?.barricaded || !door.barricadeMesh) return false;
+  door.barricadeHp -= amount;
+  door.barricadeMesh.children.forEach((slat, index) => {
+    const threshold = 70 - (index + 1) * 16;
+    slat.visible = door.barricadeHp > threshold;
+  });
+  if (source === 'melee') {
+    player.breachAnim = 0.24;
+    shakeT = Math.max(shakeT, 0.14);
+  }
+  makeNoise(door.mesh.position, source === 'bullet' ? 5.8 : 7.1, null);
+  if (door.barricadeHp <= 0) {
+    door.barricaded = false;
+    door.barricadeMesh.visible = false;
+    addFeed('BARRICADE torn open');
+    showAnnouncement('Entry opened');
+    return true;
+  }
+  return true;
+}
+
+function tryBarricadeDoor(actor = player) {
+  if (state.phase !== 'prep' && actor.team !== 'def') return false;
+  const sourcePos = actor === player ? player.pos : actor.mesh.position;
+  const door = destructibles
+    .filter((d) => d.type === 'door' && !d.destroyed && !d.barricaded)
+    .sort((a, b) => a.mesh.position.distanceTo(sourcePos) - b.mesh.position.distanceTo(sourcePos))[0];
+  if (!door || door.mesh.position.distanceTo(sourcePos) > 2.2) return false;
+  ensureDoorBarricade(door, actor.team);
+  if (actor === player) {
+    addFeed('Barricade installed');
+    showAnnouncement('Defensive seal active', 1800);
+  }
+  return true;
+}
+
 
 const weaponRig = new THREE.Group();
 const weaponMuzzle = new THREE.Object3D();
@@ -1074,7 +1177,11 @@ function makeMap() {
       spawnPos: door.position.clone(),
       spawnRot: door.rotation.clone(),
       bounds: new THREE.Box3().setFromObject(door),
-      destroyed: false
+      destroyed: false,
+      barricaded: false,
+      barricadeHp: 0,
+      barricadeTeam: null,
+      barricadeMesh: null
     });
   });
 
@@ -1231,6 +1338,7 @@ function makeMap() {
   });
 }
 makeMap();
+destructibles.filter((d) => d.type === 'door').forEach((d) => ensureDoorBarricade(d, 'def'));
 
 function makeBombVisuals() {
   bombCarryMesh = box(0.18, 0.18, 0.18, 0xffd26d, { emissive: 0xd38c22, emissiveIntensity: 1.1, roughness: 0.32, metalness: 0.28 });
@@ -1620,6 +1728,7 @@ function spawnTeams() {
 }
 spawnTeams();
 assignRoundBombCarrier();
+updateRoundBrief('ROUND 1 PREP', 'Tactical setup and entry planning underway.', 'Attackers gather drone intel while defenders fortify doors, reinforce walls, and shape the execute.');
 
 const roomZones = [
   { name: 'Bomb Room', min: new THREE.Vector3(-4.2, 0, -14.8), max: new THREE.Vector3(4.5, 4, -7.8) },
@@ -1756,7 +1865,30 @@ function updateUI() {
       ui.bombMarker.classList.remove('hidden');
     }
   }
+
+
+  const closeEnemies = bots.filter((b) => !b.dead && b.team !== player.team && b.mesh.position.distanceTo(player.pos) < 12);
+  const visibleEnemies = closeEnemies.filter((b) => hasLineOfSight(player.pos.clone().setY(1.35), b.mesh.position.clone().setY(1.15)));
+  const pressureScore = visibleEnemies.length * 2 + closeEnemies.length + (state.bombPlanted ? 2 : 0) + (player.hp < 45 ? 1 : 0);
+  if (ui.pressureMeter) {
+    const pressureLabel = pressureScore >= 6 ? 'Contact Pressure: Extreme' : pressureScore >= 3 ? 'Contact Pressure: Engaged' : 'Contact Pressure: Calm';
+    ui.pressureMeter.textContent = pressureLabel;
+    ui.pressureMeter.classList.toggle('hot', pressureScore >= 3);
+  }
+  if (ui.entryStatus) {
+    const sealedDoors = destructibles.filter((d) => d.type === 'door' && d.barricaded && !d.destroyed).length;
+    ui.entryStatus.textContent = sealedDoors >= 4 ? `Entry Control: ${sealedDoors} barricades slowing the clear` : state.atkObjectiveKnown ? 'Entry Control: Site route identified for execute' : 'Entry Control: Exterior angles contained';
+    ui.entryStatus.classList.toggle('locked', sealedDoors >= 4 || state.bombPlanted);
+  }
+  if (ui.supportStatus) {
+    const supportLabel = player.droneActive ? 'Support Net: Drone feed live' : player.abilityCd <= 0 ? `Support Net: ${player.abilityLabel} online` : `Support Net: Utility cycling ${player.abilityCd.toFixed(1)}s`;
+    ui.supportStatus.textContent = supportLabel;
+    ui.supportStatus.classList.toggle('online', player.droneActive || player.abilityCd <= 0);
+  }
+
+  document.body.classList.toggle('lockdown', state.lockdown);
 }
+
 
 function shoot(shooter, dir, damage = 34, spread = 0.02) {
   const d = dir.clone().add(new THREE.Vector3((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread)).normalize();
@@ -1766,7 +1898,7 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
   raycaster.set(shotStart, d);
   const botMeshes = bots.filter(b => !b.dead && b.team !== (shooter.team || shooter.team === undefined ? shooter.team : player.team)).map(b => b.mesh);
   const hitBot = raycaster.intersectObjects(botMeshes, false)[0];
-  const hitDes = raycaster.intersectObjects(destructibles.filter(x => !x.destroyed).map(d => d.mesh), false)[0];
+  const hitDes = raycaster.intersectObjects(destructibles.filter(x => !x.destroyed).flatMap(d => d.barricaded && d.barricadeMesh ? [...d.barricadeMesh.children, d.mesh] : [d.mesh]), false)[0];
   const nearest = !hitBot ? hitDes : !hitDes ? hitBot : (hitBot.distance < hitDes.distance ? hitBot : hitDes);
   const endPoint = nearest ? nearest.point.clone() : shotStart.clone().addScaledVector(d, 70);
   spawnTrail(shotStart, endPoint, shooter === player);
@@ -1784,8 +1916,10 @@ function shoot(shooter, dir, damage = 34, spread = 0.02) {
         onBotEliminated(b, shooter === player ? 'You' : shooter.role, p);
       }
     } else if (hitDes) {
-      const dObj = destructibles.find(x => x.mesh === hitDes.object);
-      if (dObj.type === 'door') {
+      const dObj = destructibles.find(x => x.mesh === hitDes.object || x.barricadeMesh === hitDes.object.parent);
+      if (dObj?.type === 'door' && dObj.barricaded && hitDes.object.parent === dObj.barricadeMesh) {
+        damageDoorBarricade(dObj, damage * 0.9, 'bullet');
+      } else if (dObj.type === 'door') {
         dObj.hp = 0;
         if (!dObj.destroyed) destroyDestructible(dObj);
       } else {
@@ -1827,6 +1961,7 @@ function spawnTrail(start, end, fromPlayer) {
 function destroyDestructible(d) {
   d.destroyed = true;
   if (d.reinforcedSkin) d.reinforcedSkin.visible = false;
+  if (d.barricadeMesh) d.barricadeMesh.visible = false;
   if (d.type === 'glass') {
     d.mesh.material.opacity = 0.05;
     for (let i = 0; i < 12; i++) {
@@ -1888,6 +2023,7 @@ function placeBreachCharge() {
   world.add(charge);
   gadgets.push({ type: 'charge', mesh: charge, target: destructibles.find(d => d.mesh === hit.object), timer: 1.5 });
   addFeed('Breach charge armed');
+  showAnnouncement('Exothermic charge primed', 1800);
   makeNoise(charge.position, 5.8, player.team);
   beep(800, 0.07, 'triangle', 0.03);
 }
@@ -1912,6 +2048,7 @@ function pulseScan() {
     addPing(player.pos.clone().add(new THREE.Vector3(0, 0.2, -2)), 'atk');
     addFeed(`${player.codename} emitted ${player.abilityLabel}`);
   }
+  showAnnouncement(`${player.codename.toUpperCase()} · ${player.abilityLabel.toUpperCase()}`, 1700);
   beep(1200, 0.08, 'sine', 0.03);
 }
 
@@ -1953,6 +2090,8 @@ function setAttackerObjectiveKnown(source = 'Drones') {
 
 function beginActionPhase() {
   state.phase = 'action';
+  updateRoundBrief('ACTION PHASE', 'Execute the breach and take the site.', 'Pressure defenders with synchronized utility, collapse on picks, and deny rotates.');
+  showAnnouncement('Action phase live · weapons free');
   state.phaseTime = state.phaseConfig.action;
   addFeed('Prep complete. Action phase live');
 
@@ -1998,12 +2137,16 @@ function plantOrDefuse(dt) {
     state.plantingActor = 'You';
     if (player.plantProg > 3) {
       state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant; player.plantProg = 0;
+      state.lockdown = true;
+      updateRoundBrief('POST-PLANT LOCKDOWN', 'Hold angles and deny the disable.', 'Fortify every route into site, trade aggressively, and keep the detonation package alive.');
+      showAnnouncement('Rift Charge planted · lockdown active');
       addFeed('Rift Charge planted'); beep(70, 0.2, 'square', 0.08);
     }
   }
   if (player.team === 'def' && state.bombPlanted && input.keys['KeyX']) {
     player.defProg = (player.defProg || 0) + dt;
     if (player.defProg > 4) {
+      showAnnouncement('Disable complete · defenders stabilize');
       addFeed('Rift Charge disabled'); endRound('def');
     }
   }
@@ -2256,6 +2399,7 @@ function botThink(bot, dt) {
     if (prepDoor) {
       prepDoor.hp = Math.min(150, prepDoor.hp + dt * 20);
       prepDoor.mesh.material.color.lerp(new THREE.Color(0x7f5f3f), dt * 0.85);
+      if (!prepDoor.barricaded && Math.random() < dt * 1.6) tryBarricadeDoor(bot);
     }
 
     if (bot.reinforcementsLeft > 0) {
@@ -2630,6 +2774,9 @@ function botThink(bot, dt) {
     state.plantingActor = bot.team === player.team ? bot.codename : 'Enemy';
     if (bot.plant > 3) {
       state.bombPlanted = true; state.bombTimer = state.phaseConfig.postPlant;
+      state.lockdown = true;
+      updateRoundBrief('POST-PLANT LOCKDOWN', 'Site lost — collapse for the disable.', 'Retake methodically, pinch from multiple lanes, and clear every post-plant angle before sticking the disable.');
+      showAnnouncement('Enemy plant confirmed · retake now');
       addFeed('Enemy planter armed Rift Charge');
     }
   }
@@ -2644,6 +2791,7 @@ function botThink(bot, dt) {
 function endRound(winner) {
   if (state.gameOver) return;
   state.score[winner]++;
+  showAnnouncement(`${winner === 'atk' ? 'Vanguard' : 'Bastion'} secure round ${state.round}`);
   addFeed(`${winner === 'atk' ? 'Vanguard' : 'Bastion'} takes round ${state.round}`);
   ui.scoreboard.classList.remove('hidden');
   const rows = [player, ...bots].map(e => {
@@ -2667,6 +2815,9 @@ function endRound(winner) {
 function resetRound() {
   state.phase = 'prep';
   state.phaseTime = state.phaseConfig.prep;
+  state.lockdown = false;
+  updateRoundBrief(`ROUND ${state.round} PREP`, 'Tactical setup and entry planning underway.', 'Attackers gather drone intel while defenders fortify doors, reinforce walls, and shape the execute.');
+  showAnnouncement(`Round ${state.round} · prep phase`, 1800);
   state.atkObjectiveKnown = false;
   state.bombPlanted = false;
   state.bombTimer = state.phaseConfig.postPlant;
@@ -2698,6 +2849,7 @@ function resetRound() {
     d.reinforced = false;
     d.reinforceProgress = 0;
     if (d.reinforcedSkin) d.reinforcedSkin.visible = false;
+    if (d.type === 'door') ensureDoorBarricade(d, 'def');
     d.maxHp = d.type === 'door' ? 80 : (d.type === 'wall' ? 70 : d.maxHp || 70);
     d.hp = d.type === 'glass' ? 32 : d.maxHp;
     d.breachFx = 0;
@@ -2731,6 +2883,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit6' && !(state.phase === 'prep' && player.team === 'atk')) cycleCams();
   if (e.code === 'KeyG') placeBreachCharge();
   if (e.code === 'KeyF') pulseScan();
+  if (e.code === 'KeyB') tryBarricadeDoor(player);
   if (e.code === 'KeyV') input.melee = true;
   if (e.code === 'KeyR' && player.ammo < 30 && player.reserve > 0) {
     const need = Math.min(30 - player.ammo, player.reserve); player.ammo += need; player.reserve -= need; beep(350, 0.05);
@@ -2859,7 +3012,11 @@ function updatePlayer(dt) {
 
   if (input.melee) {
     const near = destructibles.find(d => !d.destroyed && d.mesh.position.distanceTo(player.pos) < 1.5 && (d.type === 'door' || d.type === 'wall'));
-    if (near) { applyDestructibleDamage(near, 28, 'melee'); makeNoise(near.mesh.position, 6.2, player.team); }
+    if (near) {
+      if (near.type === 'door' && near.barricaded) damageDoorBarricade(near, 32, 'melee');
+      else applyDestructibleDamage(near, 28, 'melee');
+      makeNoise(near.mesh.position, 6.2, player.team);
+    }
     input.melee = false;
   }
 
