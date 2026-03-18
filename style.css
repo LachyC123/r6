@@ -450,3 +450,115 @@ html, body {
     width: calc(100vw - 24px);
   }
 }
+
+#announcerBanner {
+  position: absolute;
+  top: 126px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: min(540px, 78vw);
+  padding: 10px 18px;
+  border: 1px solid rgba(146, 199, 255, 0.5);
+  background: linear-gradient(90deg, rgba(5, 18, 35, 0.96), rgba(12, 30, 53, 0.78), rgba(5, 18, 35, 0.96));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34), 0 0 32px rgba(88, 175, 255, 0.16);
+  border-radius: 8px;
+  text-align: center;
+  letter-spacing: 0.14em;
+  font-size: 12px;
+  font-weight: 800;
+  color: #eaf4ff;
+  text-transform: uppercase;
+  opacity: 0;
+}
+#announcerBanner.show { animation: banner-in 2.4s ease forwards; }
+
+#roundBrief {
+  position: absolute;
+  top: 146px;
+  left: 20px;
+  max-width: min(380px, 34vw);
+  padding: 16px 18px 15px;
+  border: 1px solid rgba(136, 192, 255, 0.26);
+  background: linear-gradient(145deg, rgba(6, 18, 34, 0.86), rgba(7, 15, 28, 0.7));
+  border-radius: 12px;
+  box-shadow: 0 16px 32px rgba(2, 10, 24, 0.35);
+  overflow: hidden;
+}
+#roundBrief::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(111, 180, 255, 0.14), transparent 52%);
+  pointer-events: none;
+}
+.brief-kicker {
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: #86d6ff;
+  margin-bottom: 8px;
+}
+#briefTitle {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+#briefSubtitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ebf4ff;
+  margin-bottom: 8px;
+}
+#briefDetails {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #b9cde8;
+}
+
+#tacticalPanel {
+  position: absolute;
+  left: 20px;
+  top: 330px;
+  min-width: 280px;
+  padding: 12px 14px;
+  background: rgba(6, 16, 30, 0.8);
+  border: 1px solid rgba(132, 176, 255, 0.24);
+  border-radius: 12px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.26);
+  line-height: 1.6;
+}
+#tacticalPanel .panel-title {
+  font-size: 11px;
+  color: #8fd9ff;
+  letter-spacing: 0.22em;
+  margin-bottom: 6px;
+}
+#pressureMeter.hot { color: #ffb3a2; }
+#entryStatus.locked { color: #ffe7ab; }
+#supportStatus.online { color: #a9ffd4; }
+
+body.lockdown #topBar,
+body.lockdown #roundBrief,
+body.lockdown #tacticalPanel,
+body.lockdown #leftPanel,
+body.lockdown #rightPanel,
+body.lockdown #objective,
+body.lockdown #plantStatus {
+  border-color: rgba(255, 135, 135, 0.46);
+  box-shadow: 0 0 28px rgba(255, 88, 88, 0.16);
+}
+body.lockdown #vignette {
+  background: radial-gradient(circle at center, transparent 42%, rgba(94, 17, 27, 0.16) 72%, rgba(38, 5, 10, 0.55) 100%);
+}
+
+@keyframes banner-in {
+  0% { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.98); }
+  12%, 78% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-2px) scale(1.02); }
+}
+
+@media (max-width: 900px) {
+  #roundBrief, #tacticalPanel { max-width: calc(100vw - 40px); right: 20px; }
+  #tacticalPanel { top: auto; bottom: 168px; }
+  #roundBrief { top: 134px; }
+}
