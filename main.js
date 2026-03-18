@@ -530,6 +530,28 @@ function makeNoiseTexture(base = '#253242', accent = '#1b2736') {
   return t;
 }
 
+function makeStripedTexture(base = '#70543d', stripe = '#8f6948', grain = '#4f3927', repeatX = 6, repeatY = 2) {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, c.width, c.height);
+  for (let y = 0; y < c.height; y += 18) {
+    ctx.fillStyle = y % 36 === 0 ? stripe : base;
+    ctx.fillRect(0, y, c.width, 12);
+  }
+  for (let i = 0; i < 900; i++) {
+    ctx.fillStyle = `${grain}${Math.floor((0.08 + Math.random() * 0.14) * 255).toString(16).padStart(2, '0')}`;
+    ctx.fillRect(Math.random() * c.width, Math.random() * c.height, 3 + Math.random() * 10, 1 + Math.random() * 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeatX, repeatY);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
 
 const navNodes = [
   new THREE.Vector3(-10, 0, 8), new THREE.Vector3(-4, 0, 8), new THREE.Vector3(4, 0, 8), new THREE.Vector3(10, 0, 8),
@@ -870,31 +892,101 @@ function isBlockedPoint(point) {
 }
 
 function makeMap() {
-  const floorTex = makeNoiseTexture('#68809b', '#4a6078');
-  const wallTex = makeNoiseTexture('#d4bea2', '#9daec2');
-  const concreteTex = makeNoiseTexture('#3f4752', '#323943');
-  const trimTex = makeNoiseTexture('#5c6d80', '#3f4f62');
+  const floorTex = makeNoiseTexture('#6e7f8f', '#4f5f70');
+  const wallTex = makeStripedTexture('#8d6d51', '#a88160', '#5c412c', 7, 2.6);
+  const concreteTex = makeNoiseTexture('#525864', '#393f49');
+  const trimTex = makeNoiseTexture('#5d4c40', '#43362d');
+  const snowTex = makeNoiseTexture('#edf5ff', '#cfe2f7');
+  snowTex.repeat.set(12, 12);
+  const roofTex = makeStripedTexture('#57453a', '#705849', '#2a201b', 6, 3);
+  const woodTex = makeStripedTexture('#7a573e', '#986f4d', '#4c3525', 8, 3);
+  const stoneTex = makeNoiseTexture('#80756c', '#5b524c');
+  stoneTex.repeat.set(5, 5);
 
-  const floor = box(30, 0.2, 30, 0x6c8298, { map: floorTex, roughness: 0.66, metalness: 0.2 });
+  const floor = box(30, 0.2, 30, 0x736452, { map: floorTex, roughness: 0.82, metalness: 0.14 });
   floor.position.y = -0.1;
   floor.receiveShadow = true;
   world.add(floor);
 
-  const exteriorApron = box(58, 0.16, 58, 0x33424f, { roughness: 0.9, metalness: 0.06, emissive: 0x132534, emissiveIntensity: 0.16 });
+  const exteriorApron = box(58, 0.16, 58, 0xf2f6fb, { map: snowTex, roughness: 0.98, metalness: 0.02, emissive: 0xa7c2df, emissiveIntensity: 0.08 });
   exteriorApron.position.y = -0.18;
   world.add(exteriorApron);
 
   const perimeterLane = new THREE.Mesh(
     new THREE.RingGeometry(20, 27, 52),
-    new THREE.MeshStandardMaterial({ color: 0x3a4b5f, roughness: 0.84, metalness: 0.08, emissive: 0x1c2f45, emissiveIntensity: 0.16, side: THREE.DoubleSide })
+    new THREE.MeshStandardMaterial({ color: 0x5b5f65, roughness: 0.96, metalness: 0.04, emissive: 0x1f2630, emissiveIntensity: 0.12, side: THREE.DoubleSide })
   );
   perimeterLane.rotation.x = -Math.PI / 2;
   perimeterLane.position.y = -0.09;
   world.add(perimeterLane);
 
-  const ceiling = box(30, 0.3, 30, 0x71859b, { map: trimTex, roughness: 0.88, metalness: 0.2 });
+  const ceiling = box(30, 0.3, 30, 0x6c5441, { map: trimTex, roughness: 0.88, metalness: 0.12 });
   ceiling.position.y = 4;
   world.add(ceiling);
+
+  const mainShell = box(31.2, 4.2, 31.2, 0x77563f, { map: woodTex, roughness: 0.86, metalness: 0.08 });
+  mainShell.position.set(0, 2, 0);
+  world.add(mainShell);
+
+  const loftShell = box(17.5, 3.4, 12.4, 0x705039, { map: woodTex, roughness: 0.84, metalness: 0.08 });
+  loftShell.position.set(0.8, 5.15, -2.6);
+  world.add(loftShell);
+
+  const roofSections = [
+    { size: [22.5, 0.45, 17], pos: [0, 7.3, -2.3], rotZ: Math.PI * 0.17 },
+    { size: [22.5, 0.45, 17], pos: [0, 7.3, -2.3], rotZ: -Math.PI * 0.17 },
+    { size: [10.2, 0.34, 9.2], pos: [-10.2, 5.45, 8.6], rotX: Math.PI * 0.17 },
+    { size: [10.2, 0.34, 9.2], pos: [10.2, 5.45, 8.6], rotX: -Math.PI * 0.17 }
+  ];
+  roofSections.forEach(({ size, pos, rotX = 0, rotZ = 0 }) => {
+    const roof = box(size[0], size[1], size[2], 0x5b4436, { map: roofTex, roughness: 0.94, metalness: 0.06 });
+    roof.position.set(...pos);
+    roof.rotation.x = rotX;
+    roof.rotation.z = rotZ;
+    world.add(roof);
+  });
+
+  const chimney = box(2.4, 7.2, 2.4, 0x7f756d, { map: stoneTex, roughness: 0.95, metalness: 0.03 });
+  chimney.position.set(-8.6, 4.1, -6.5);
+  world.add(chimney);
+
+  const addWindowGlow = (x, y, z, w, h, rotY = 0) => {
+    const frame = box(w + 0.18, h + 0.18, 0.12, 0x4b311f, { roughness: 0.82, metalness: 0.08 });
+    frame.position.set(x, y, z);
+    frame.rotation.y = rotY;
+    world.add(frame);
+    const pane = box(w, h, 0.04, 0xf6c97a, { roughness: 0.22, metalness: 0.12, emissive: 0xffc97d, emissiveIntensity: 0.95 });
+    pane.position.set(x, y, z + (Math.abs(rotY) < 0.1 ? 0.05 : 0));
+    if (Math.abs(rotY) > 0.1) pane.position.x += Math.sin(rotY) * 0.05;
+    pane.rotation.y = rotY;
+    world.add(pane);
+  };
+
+  [
+    [-10.5, 2.3, 15.18, 2.8, 1.5, 0],
+    [-3.5, 2.3, 15.18, 2.8, 1.5, 0],
+    [3.5, 2.3, 15.18, 2.8, 1.5, 0],
+    [10.5, 2.3, 15.18, 2.8, 1.5, 0],
+    [-15.18, 2.35, 9.5, 2.3, 1.4, Math.PI / 2],
+    [-15.18, 2.35, -9.5, 2.3, 1.4, Math.PI / 2],
+    [15.18, 2.35, 9.5, 2.3, 1.4, Math.PI / 2],
+    [15.18, 2.35, -9.5, 2.3, 1.4, Math.PI / 2],
+    [-7.2, 5.2, -14.95, 2.2, 1.2, 0],
+    [0.4, 5.2, -14.95, 2.2, 1.2, 0],
+    [7.8, 5.2, -14.95, 2.2, 1.2, 0]
+  ].forEach((args) => addWindowGlow(...args));
+
+  const balcony = box(14.5, 0.2, 2.3, 0x654731, { map: woodTex, roughness: 0.88, metalness: 0.08 });
+  balcony.position.set(0.5, 3.65, 13.7);
+  world.add(balcony);
+  for (let i = 0; i < 9; i++) {
+    const post = box(0.18, 0.92, 0.18, 0x513524, { roughness: 0.8 });
+    post.position.set(-6 + i * 1.5, 4.1, 14.5);
+    world.add(post);
+  }
+  const rail = box(14.6, 0.16, 0.16, 0x513524, { roughness: 0.8 });
+  rail.position.set(0.5, 4.55, 14.5);
+  world.add(rail);
 
   const walls = [
     [0, 1.5, 15, 30, 3, 0.4],
@@ -1031,6 +1123,63 @@ function makeMap() {
     addStaticCollider(locker);
   });
 
+  const fireplaceBase = box(4.2, 2.2, 1.1, 0x7d7269, { map: stoneTex, roughness: 0.94, metalness: 0.03 });
+  fireplaceBase.position.set(-10.8, 1.1, 11.5);
+  world.add(fireplaceBase);
+  addStaticCollider(fireplaceBase);
+  const mantle = box(4.6, 0.22, 1.4, 0x714e36, { map: woodTex, roughness: 0.82, metalness: 0.08 });
+  mantle.position.set(-10.8, 2.2, 11.5);
+  world.add(mantle);
+  const fireGlow = box(2, 0.8, 0.4, 0xffaf4d, { roughness: 0.2, metalness: 0.08, emissive: 0xff9230, emissiveIntensity: 1.25 });
+  fireGlow.position.set(-10.8, 0.9, 11.95);
+  world.add(fireGlow);
+
+  const loungePieces = [
+    [-5.1, 0.45, 11.4, 2.4, 0.9, 1.1, 0x4e372b],
+    [-2.2, 0.45, 10.5, 1.6, 0.9, 1.1, 0x574032],
+    [-3.6, 0.24, 11, 2.1, 0.24, 1.2, 0x7a5b3f]
+  ];
+  loungePieces.forEach(([x, y, z, w, h, d, color], i) => {
+    const piece = box(w, h, d, color, { map: i === 2 ? woodTex : null, roughness: 0.86, metalness: 0.06 });
+    piece.position.set(x, y, z);
+    world.add(piece);
+    if (i < 2) addStaticCollider(piece);
+  });
+
+  const diningTable = box(3.6, 0.22, 1.8, 0x75543c, { map: woodTex, roughness: 0.82, metalness: 0.08 });
+  diningTable.position.set(10.4, 1.02, 11.2);
+  world.add(diningTable);
+  addStaticCollider(diningTable);
+  [[9.1, 10.1], [9.1, 12.3], [11.7, 10.1], [11.7, 12.3]].forEach(([x, z]) => {
+    const chair = box(0.62, 1.2, 0.62, 0x594132, { roughness: 0.84, metalness: 0.04 });
+    chair.position.set(x, 0.6, z);
+    world.add(chair);
+    addStaticCollider(chair);
+  });
+
+  const stairSteps = [
+    [-13.2, 0.2, -11.6], [-12.5, 0.42, -11.1], [-11.8, 0.64, -10.6], [-11.1, 0.86, -10.1],
+    [-10.4, 1.08, -9.6], [-9.7, 1.3, -9.1]
+  ];
+  stairSteps.forEach(([x, y, z]) => {
+    const step = box(1.2, 0.2, 0.8, 0x704f38, { map: woodTex, roughness: 0.86, metalness: 0.05 });
+    step.position.set(x, y, z);
+    world.add(step);
+  });
+
+  const beams = [
+    [-10.2, 3.2, 0, 0.34, 0.34, 28],
+    [0, 3.2, 0, 0.34, 0.34, 28],
+    [10.2, 3.2, 0, 0.34, 0.34, 28],
+    [0, 3.2, -10.2, 28, 0.34, 0.34],
+    [0, 3.2, 10.2, 28, 0.34, 0.34]
+  ];
+  beams.forEach(([x, y, z, w, h, d]) => {
+    const beam = box(w, h, d, 0x5a3e2b, { map: woodTex, roughness: 0.88, metalness: 0.05 });
+    beam.position.set(x, y, z);
+    world.add(beam);
+  });
+
   const coverSpots = [
     [-12, 0.65, 10.5], [-9.5, 0.65, 10.1], [-6.8, 0.65, 10.3], [5.8, 0.65, 8.8],
     [10.8, 0.65, 4.8], [11.2, 0.65, -5], [2.3, 0.65, -6.2], [-1.3, 0.65, -5.8],
@@ -1081,16 +1230,52 @@ function makeMap() {
     world.add(banner);
   });
 
+  const pineSpots = [
+    [-24, 0, -22], [-20, 0, -14], [-24, 0, -2], [-21, 0, 9], [-25, 0, 20],
+    [24, 0, -22], [21, 0, -14], [24, 0, -3], [22, 0, 11], [25, 0, 20],
+    [-10, 0, 24], [0, 0, 25], [10, 0, 24], [-6, 0, -25], [8, 0, -24]
+  ];
+  pineSpots.forEach(([x, y, z], i) => {
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.28, 2.4 + (i % 3) * 0.35, 8),
+      new THREE.MeshStandardMaterial({ color: 0x5f4530, roughness: 0.92, metalness: 0.04 })
+    );
+    trunk.position.set(x, 1.1, z);
+    world.add(trunk);
+    for (let tier = 0; tier < 3; tier++) {
+      const crown = new THREE.Mesh(
+        new THREE.ConeGeometry(1.8 - tier * 0.28 + (i % 2) * 0.1, 2.3 - tier * 0.2, 8),
+        new THREE.MeshStandardMaterial({ color: tier === 0 ? 0x2f4d35 : 0x365d3f, roughness: 0.96, metalness: 0.02 })
+      );
+      crown.position.set(x, 2.3 + tier * 1.1, z);
+      world.add(crown);
+    }
+  });
+
+  const snowbanks = [
+    [-18.5, 0.35, 16.2, 7.2, 0.7, 4.2], [18.5, 0.35, -16.2, 7.2, 0.7, 4.2],
+    [-16.8, 0.3, -13.8, 5.6, 0.6, 3.8], [16.8, 0.3, 13.8, 5.6, 0.6, 3.8],
+    [0, 0.28, 22.5, 10.4, 0.56, 3.1]
+  ];
+  snowbanks.forEach(([x, y, z, w, h, d]) => {
+    const bank = box(w, h, d, 0xf5f8fd, { map: snowTex, roughness: 0.98, metalness: 0.02 });
+    bank.position.set(x, y, z);
+    world.add(bank);
+  });
+
   const exteriorStructures = [
-    [-21, 2.6, -16, 5.8, 5.2, 4.8, 0x2f3c4a],
-    [22, 2.1, 15, 7.2, 4.2, 4.4, 0x3a3342],
-    [-23, 1.8, 14, 4.6, 3.6, 5.6, 0x354252],
-    [19.5, 2.7, -18, 6.4, 5.4, 5.2, 0x423a34]
+    [-21, 2.4, -16, 6.6, 4.8, 5.2, 0x5f4738],
+    [22, 2.2, 15, 7.2, 4.4, 4.8, 0x6a5141],
+    [-23, 1.9, 14, 5.2, 3.8, 5.8, 0x645042],
+    [19.5, 2.6, -18, 6.8, 5, 5.6, 0x5a4639]
   ];
   exteriorStructures.forEach(([x, y, z, w, h, d, color], i) => {
-    const structure = box(w, h, d, color, { roughness: 0.9, metalness: 0.06, emissive: i % 2 ? 0x15202f : 0x2a1f1f, emissiveIntensity: 0.18 });
+    const structure = box(w, h, d, color, { map: woodTex, roughness: 0.92, metalness: 0.04, emissive: i % 2 ? 0x2d231f : 0x241c18, emissiveIntensity: 0.1 });
     structure.position.set(x, y, z);
     world.add(structure);
+    const cap = box(w + 0.4, 0.24, d + 0.4, 0xf2f5fb, { map: snowTex, roughness: 0.98, metalness: 0.01 });
+    cap.position.set(x, y + h / 2 + 0.16, z);
+    world.add(cap);
   });
 
   const policeVans = [
@@ -1317,6 +1502,16 @@ function makeMap() {
     policeAmber.position.set(13.8, 3.1, -12.6);
     world.add(policeAmber);
     flickerLights.push(policeBlue, policeAmber);
+
+    const hearthLight = new THREE.PointLight(0xffa45d, 1.4, 14, 2);
+    hearthLight.position.set(-10.8, 1.6, 11.2);
+    world.add(hearthLight);
+    flickerLights.push(hearthLight);
+
+    const chandelier = new THREE.PointLight(0xffdfad, 1.2, 16, 2);
+    chandelier.position.set(9.8, 3.1, 11.2);
+    world.add(chandelier);
+    flickerLights.push(chandelier);
   }
 
   const rainGeo = new THREE.BoxGeometry(0.025, 0.42, 0.025);
@@ -1728,7 +1923,7 @@ function spawnTeams() {
 }
 spawnTeams();
 assignRoundBombCarrier();
-updateRoundBrief('ROUND 1 PREP', 'Tactical setup and entry planning underway.', 'Attackers gather drone intel while defenders fortify doors, reinforce walls, and shape the execute.');
+updateRoundBrief('ROUND 1 PREP', 'Alpine lodge assault planning underway.', 'Attackers gather drone intel around the chalet while defenders fortify doors, reinforce walls, and shape the execute.');
 
 const roomZones = [
   { name: 'Bomb Room', min: new THREE.Vector3(-4.2, 0, -14.8), max: new THREE.Vector3(4.5, 4, -7.8) },
@@ -1819,7 +2014,7 @@ function updateUI() {
     ui.objective.innerHTML = `<span class="warn">Spectating ${targetName}</span> · Stay in the round and call plays.`;
   } else if (state.phase === 'prep') {
     ui.objective.innerHTML = player.team === 'atk'
-      ? `Prep Phase: Attackers are locked on drones and must scout from outside to locate Bomb Room.${state.atkObjectiveKnown ? ' <span class="ok">Objective found.</span>' : ''}`
+      ? `Prep Phase: Attackers are locked on drones and must scout from outside to locate the chalet site.${state.atkObjectiveKnown ? ' <span class="ok">Objective found.</span>' : ''}`
       : 'Prep Phase: Defenders barricade, place traps, and fortify the site before action starts.';
   } else if (state.bombPlanted) {
     ui.objective.innerHTML = '<span class="warn">Post-Plant: Defend the Rift Charge detonation.</span>';
@@ -1828,7 +2023,7 @@ function updateUI() {
   } else {
     ui.objective.innerHTML = state.bombCarrier?.hasBomb
       ? `${entityLabel(state.bombCarrier)} has the Rift Charge. Reach Bomb Room and plant.`
-      : 'Action Phase: Breach entry points, clear rooms, and plant in Bomb Room.';
+      : 'Action Phase: Breach chalet entry points, clear rooms, and plant on site.';
   }
 
   if (ui.bombOwner) {
@@ -1877,7 +2072,7 @@ function updateUI() {
   }
   if (ui.entryStatus) {
     const sealedDoors = destructibles.filter((d) => d.type === 'door' && d.barricaded && !d.destroyed).length;
-    ui.entryStatus.textContent = sealedDoors >= 4 ? `Entry Control: ${sealedDoors} barricades slowing the clear` : state.atkObjectiveKnown ? 'Entry Control: Site route identified for execute' : 'Entry Control: Exterior angles contained';
+    ui.entryStatus.textContent = sealedDoors >= 4 ? `Entry Control: ${sealedDoors} barricades slowing the clear` : state.atkObjectiveKnown ? 'Entry Control: Site route identified for execute' : 'Entry Control: Chalet approaches under watch';
     ui.entryStatus.classList.toggle('locked', sealedDoors >= 4 || state.bombPlanted);
   }
   if (ui.supportStatus) {
@@ -2816,7 +3011,7 @@ function resetRound() {
   state.phase = 'prep';
   state.phaseTime = state.phaseConfig.prep;
   state.lockdown = false;
-  updateRoundBrief(`ROUND ${state.round} PREP`, 'Tactical setup and entry planning underway.', 'Attackers gather drone intel while defenders fortify doors, reinforce walls, and shape the execute.');
+  updateRoundBrief(`ROUND ${state.round} PREP`, 'Alpine lodge assault planning underway.', 'Attackers gather drone intel around the chalet while defenders fortify doors, reinforce walls, and shape the execute.');
   showAnnouncement(`Round ${state.round} · prep phase`, 1800);
   state.atkObjectiveKnown = false;
   state.bombPlanted = false;
