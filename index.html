@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0a1a" />
+  <title>Arcade Soccer</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="game-canvas"></div>
+  <div id="ui-root">
+    <!-- Scoreboard -->
+    <div id="scoreboard">
+      <div class="team-block">
+        <span class="team-name">HOME</span>
+        <span class="team-score" id="score-home">0</span>
+      </div>
+      <div class="match-info">
+        <span id="match-timer">3:00</span>
+      </div>
+      <div class="team-block right">
+        <span class="team-score" id="score-away">0</span>
+        <span class="team-name">AWAY</span>
+      </div>
+    </div>
+
+    <!-- Overlays -->
+    <div id="overlay-start" class="overlay">
+      <div class="overlay-card">
+        <h1>ARCADE SOCCER</h1>
+        <p class="subtitle">3-minute match · Score to win</p>
+        <div class="controls-hint">
+          <div class="hint-row"><kbd>WASD</kbd> Move &nbsp; <kbd>Shift</kbd> Sprint &nbsp; <kbd>Space</kbd> Shoot</div>
+          <div class="hint-row"><kbd>R</kbd> Reset ball &nbsp; <kbd>Esc</kbd> Pause</div>
+        </div>
+        <button id="btn-start" class="btn-primary">KICK OFF</button>
+      </div>
+    </div>
+
+    <div id="overlay-pause" class="overlay hidden">
+      <div class="overlay-card">
+        <h2>PAUSED</h2>
+        <button id="btn-resume" class="btn-primary">RESUME</button>
+        <button id="btn-restart-pause" class="btn-secondary">RESTART</button>
+      </div>
+    </div>
+
+    <div id="overlay-goal" class="overlay hidden">
+      <div class="goal-banner">
+        <span id="goal-text">GOAL!</span>
+        <span id="goal-team"></span>
+      </div>
+    </div>
+
+    <div id="overlay-fulltime" class="overlay hidden">
+      <div class="overlay-card">
+        <h2>FULL TIME</h2>
+        <div class="final-score">
+          <span>HOME</span>
+          <span id="final-home">0</span>
+          <span class="dash">—</span>
+          <span id="final-away">0</span>
+          <span>AWAY</span>
+        </div>
+        <div id="result-text" class="result-text"></div>
+        <button id="btn-restart" class="btn-primary">PLAY AGAIN</button>
+      </div>
+    </div>
+
+    <!-- Mobile controls -->
+    <div id="mobile-controls">
+      <div id="joystick-zone">
+        <div id="joystick-base">
+          <div id="joystick-thumb"></div>
+        </div>
+      </div>
+      <div id="action-buttons">
+        <button id="btn-sprint-mobile" class="action-btn sprint-btn">RUN</button>
+        <button id="btn-shoot-mobile" class="action-btn shoot-btn">SHOOT</button>
+      </div>
+    </div>
+
+    <!-- Controls hint (desktop) -->
+    <div id="desktop-hint">WASD · Space · Shift · R · Esc</div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
